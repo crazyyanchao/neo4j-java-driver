@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -19,6 +19,7 @@
 package org.neo4j.driver.util;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.StandardSocketOptions;
 import java.net.URI;
@@ -26,12 +27,14 @@ import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Scanner;
 
 import org.neo4j.driver.AuthToken;
 import org.neo4j.driver.Config;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.internal.BoltServerAddress;
+import org.neo4j.driver.internal.util.ErrorUtil;
 
 import static java.util.Arrays.asList;
 import static java.util.logging.Level.INFO;
@@ -54,8 +57,9 @@ public class Neo4jRunner
 {
     private static Neo4jRunner globalInstance;
 
-    private static final String DEFAULT_NEOCTRL_ARGS = "-e 3.5.3";
-    public static final String NEOCTRL_ARGS = System.getProperty( "neoctrl.args", DEFAULT_NEOCTRL_ARGS );
+    private static final String DEFAULT_NEOCTRL_ARGS = "-e 3.5.11";
+    private static final String ENV_NEOCTRL_ARGS = System.getenv( "JAVA_DRIVER_NEOCTRL_ARGS" );
+    public static final String NEOCTRL_ARGS = System.getProperty( "neoctrl.args", ENV_NEOCTRL_ARGS == null ? DEFAULT_NEOCTRL_ARGS : ENV_NEOCTRL_ARGS );
     public static final Config DEFAULT_CONFIG = Config.builder().withLogging( console( INFO ) ).withoutEncryption().build();
 
     public static final String USER = "neo4j";
@@ -113,7 +117,16 @@ public class Neo4jRunner
         {
             installNeo4j();
             updateServerSettingsFile();
-            startNeo4j();
+            try
+            {
+                startNeo4j();
+            }
+            catch ( Exception e )
+            {
+                debug( "Failed to start server first time due to error: " + ErrorUtil.getRootCause( e ).getMessage() );
+                debug( "Retry to start server again." );
+                startNeo4j();
+            }
         }
         finally
         {
@@ -176,16 +189,14 @@ public class Neo4jRunner
 
             moveFile( new File( tempHomeDir ), targetHomeFile );
             debug( "Installed server at `%s`.", HOME_DIR );
+            executeCommand( "neoctrl-create-user", HOME_DIR, USER, PASSWORD );
         }
-
-        updateServerSettingsFile();
     }
 
     public void startNeo4j()
     {
         debug( "Starting server..." );
-        executeCommand( "neoctrl-create-user", HOME_DIR, USER, PASSWORD );
-        executeCommand( "neoctrl-start", HOME_DIR );
+        executeCommand( "neoctrl-start", HOME_DIR, "-v" );
         debug( "Server started." );
     }
 
@@ -241,6 +252,29 @@ public class Neo4jRunner
         }
     }
 
+    /**
+     * prints the debug log contents to stdOut
+     */
+    public void dumpDebugLog()
+    {
+        try
+        {
+            System.out.println( "Debug log for: " + HOME_DIR );
+            Scanner input = new Scanner( new File( HOME_DIR + "/logs/debug.log" ));
+
+            while (input.hasNextLine())
+            {
+                System.out.println(input.nextLine());
+            }
+        }
+        catch ( FileNotFoundException e )
+        {
+            System.out.println("Unable to find debug log file for: " + HOME_DIR);
+            e.printStackTrace();
+        }
+
+    }
+
     private enum ServerStatus
     {
         ONLINE, OFFLINE
@@ -262,16 +296,15 @@ public class Neo4jRunner
         }
     }
 
-    private boolean updateServerSettings( Neo4jSettings settingsUpdate )
+    private boolean updateServerSettings( Neo4jSettings newSetting )
     {
-        Neo4jSettings updatedSettings = currentSettings.updateWith( settingsUpdate );
-        if ( currentSettings.equals( updatedSettings ) )
+        if ( currentSettings.equals( newSetting ) )
         {
             return false;
         }
         else
         {
-            currentSettings = updatedSettings;
+            currentSettings = newSetting;
         }
         updateServerSettingsFile();
         return true;

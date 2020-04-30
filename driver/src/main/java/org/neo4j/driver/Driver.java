@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -95,7 +95,7 @@ public interface Driver extends AutoCloseable
      * <p>
      * Alias to {@link #rxSession(SessionConfig)}}.
      *
-     * @return @return a new {@link RxSession} object.
+     * @return a new {@link RxSession} object.
      */
     RxSession rxSession();
 
@@ -104,7 +104,7 @@ public interface Driver extends AutoCloseable
      * Use {@link SessionConfig#forDatabase(String)} to obtain a general purpose session configuration for the specified database.
      * The {@link RxSession} provides a reactive way to run queries and process results.
      * @param sessionConfig used to customize the session.
-     * @return @return a new {@link RxSession} object.
+     * @return a new {@link RxSession} object.
      */
     RxSession rxSession( SessionConfig sessionConfig );
 
@@ -114,7 +114,7 @@ public interface Driver extends AutoCloseable
      * <p>
      * Alias to {@link #asyncSession(SessionConfig)}}.
      *
-     * @return @return a new {@link AsyncSession} object.
+     * @return a new {@link AsyncSession} object.
      */
     AsyncSession asyncSession();
 
@@ -156,10 +156,18 @@ public interface Driver extends AutoCloseable
     Metrics metrics();
 
     /**
+     * Returns true if the driver metrics reporting is enabled via {@link Config.ConfigBuilder#withDriverMetrics()}, otherwise false.
+     *
+     * @return true if the metrics reporting is enabled.
+     */
+    @Experimental
+    boolean isMetricsEnabled();
+
+    /**
      * This will return the type system supported by the driver.
      * The types supported on a particular server a session is connected against might not contain all of the types defined here.
      *
-     * @return type system used by this statement runner for classifying values
+     * @return type system used by this query runner for classifying values
      */
     @Experimental
     TypeSystem defaultTypeSystem();
@@ -186,4 +194,17 @@ public interface Driver extends AutoCloseable
      * @return a {@link CompletionStage completion stage} that represents the asynchronous verification.
      */
     CompletionStage<Void> verifyConnectivityAsync();
+
+    /**
+     * Returns true if the server or cluster the driver connects to supports multi-databases, otherwise false.
+     * @return true if the server or cluster the driver connects to supports multi-databases, otherwise false.
+     */
+    boolean supportsMultiDb();
+
+    /**
+     * Asynchronous check if the server or cluster the driver connects to supports multi-databases.
+     * @return a {@link CompletionStage completion stage} that returns true if the server or cluster
+     * the driver connects to supports multi-databases, otherwise false.
+     */
+    CompletionStage<Boolean> supportsMultiDbAsync();
 }

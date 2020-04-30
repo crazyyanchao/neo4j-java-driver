@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -33,25 +33,25 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 import org.neo4j.driver.AccessMode;
+import org.neo4j.driver.Bookmark;
 import org.neo4j.driver.Logging;
-import org.neo4j.driver.Statement;
+import org.neo4j.driver.Query;
 import org.neo4j.driver.TransactionConfig;
 import org.neo4j.driver.Value;
 import org.neo4j.driver.exceptions.ClientException;
 import org.neo4j.driver.internal.BookmarkHolder;
 import org.neo4j.driver.internal.DefaultBookmarkHolder;
 import org.neo4j.driver.internal.InternalBookmark;
-import org.neo4j.driver.internal.async.ExplicitTransaction;
+import org.neo4j.driver.internal.async.UnmanagedTransaction;
 import org.neo4j.driver.internal.async.connection.ChannelAttributes;
 import org.neo4j.driver.internal.async.inbound.InboundMessageDispatcher;
-import org.neo4j.driver.internal.cursor.InternalStatementResultCursor;
+import org.neo4j.driver.internal.cursor.AsyncResultCursor;
 import org.neo4j.driver.internal.handlers.BeginTxResponseHandler;
 import org.neo4j.driver.internal.handlers.CommitTxResponseHandler;
 import org.neo4j.driver.internal.handlers.NoOpResponseHandler;
+import org.neo4j.driver.internal.handlers.PullAllResponseHandler;
 import org.neo4j.driver.internal.handlers.RollbackTxResponseHandler;
 import org.neo4j.driver.internal.handlers.RunResponseHandler;
-import org.neo4j.driver.internal.handlers.SessionPullAllResponseHandler;
-import org.neo4j.driver.internal.handlers.TransactionPullAllResponseHandler;
 import org.neo4j.driver.internal.messaging.BoltProtocol;
 import org.neo4j.driver.internal.messaging.MessageFormat;
 import org.neo4j.driver.internal.messaging.request.BeginMessage;
@@ -85,16 +85,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.neo4j.driver.AccessMode.WRITE;
 import static org.neo4j.driver.Values.value;
-import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.ABSENT_DB_NAME;
+import static org.neo4j.driver.internal.DatabaseNameUtil.defaultDatabase;
+import static org.neo4j.driver.internal.handlers.pulln.FetchSizeUtil.UNLIMITED_FETCH_SIZE;
 import static org.neo4j.driver.util.TestUtil.anyServerVersion;
 import static org.neo4j.driver.util.TestUtil.await;
 import static org.neo4j.driver.util.TestUtil.connectionMock;
 
 public class BoltProtocolV3Test
 {
-    protected static final String QUERY = "RETURN $x";
+    protected static final String QUERY_TEXT = "RETURN $x";
     protected static final Map<String,Value> PARAMS = singletonMap( "x", value( 42 ) );
-    protected static final Statement STATEMENT = new Statement( QUERY, value( PARAMS ) );
+    protected static final Query QUERY = new Query( QUERY_TEXT, value( PARAMS ) );
 
     protected final BoltProtocol protocol = createProtocol();
     private final EmbeddedChannel channel = new EmbeddedChannel();
@@ -190,7 +191,7 @@ public class BoltProtocolV3Test
 
         CompletionStage<Void> stage = protocol.beginTransaction( connection, InternalBookmark.empty(), TransactionConfig.empty() );
 
-        verify( connection ).write( new BeginMessage( InternalBookmark.empty(), TransactionConfig.empty(), ABSENT_DB_NAME, WRITE ), NoOpResponseHandler.INSTANCE );
+        verify( connection ).write( new BeginMessage( InternalBookmark.empty(), TransactionConfig.empty(), defaultDatabase(), WRITE ), NoOpResponseHandler.INSTANCE );
         assertNull( await( stage ) );
     }
 
@@ -198,11 +199,11 @@ public class BoltProtocolV3Test
     void shouldBeginTransactionWithBookmarks()
     {
         Connection connection = connectionMock( protocol );
-        InternalBookmark bookmark = InternalBookmark.parse( "neo4j:bookmark:v1:tx100" );
+        Bookmark bookmark = InternalBookmark.parse( "neo4j:bookmark:v1:tx100" );
 
         CompletionStage<Void> stage = protocol.beginTransaction( connection, bookmark, TransactionConfig.empty() );
 
-        verify( connection ).writeAndFlush( eq( new BeginMessage( bookmark, TransactionConfig.empty(), ABSENT_DB_NAME, WRITE ) ), any( BeginTxResponseHandler.class ) );
+        verify( connection ).writeAndFlush( eq( new BeginMessage( bookmark, TransactionConfig.empty(), defaultDatabase(), WRITE ) ), any( BeginTxResponseHandler.class ) );
         assertNull( await( stage ) );
     }
 
@@ -213,7 +214,7 @@ public class BoltProtocolV3Test
 
         CompletionStage<Void> stage = protocol.beginTransaction( connection, InternalBookmark.empty(), txConfig );
 
-        verify( connection ).write( new BeginMessage( InternalBookmark.empty(), txConfig, ABSENT_DB_NAME, WRITE ), NoOpResponseHandler.INSTANCE );
+        verify( connection ).write( new BeginMessage( InternalBookmark.empty(), txConfig, defaultDatabase(), WRITE ), NoOpResponseHandler.INSTANCE );
         assertNull( await( stage ) );
     }
 
@@ -221,11 +222,11 @@ public class BoltProtocolV3Test
     void shouldBeginTransactionWithBookmarksAndConfig()
     {
         Connection connection = connectionMock( protocol );
-        InternalBookmark bookmark = InternalBookmark.parse( "neo4j:bookmark:v1:tx4242" );
+        Bookmark bookmark = InternalBookmark.parse( "neo4j:bookmark:v1:tx4242" );
 
         CompletionStage<Void> stage = protocol.beginTransaction( connection, bookmark, txConfig );
 
-        verify( connection ).writeAndFlush( eq( new BeginMessage( bookmark, txConfig, ABSENT_DB_NAME, WRITE ) ), any( BeginTxResponseHandler.class ) );
+        verify( connection ).writeAndFlush( eq( new BeginMessage( bookmark, txConfig, defaultDatabase(), WRITE ) ), any( BeginTxResponseHandler.class ) );
         assertNull( await( stage ) );
     }
 
@@ -243,7 +244,7 @@ public class BoltProtocolV3Test
             return null;
         } ).when( connection ).writeAndFlush( eq( CommitMessage.COMMIT ), any() );
 
-        CompletionStage<InternalBookmark> stage = protocol.commitTransaction( connection );
+        CompletionStage<Bookmark> stage = protocol.commitTransaction( connection );
 
         verify( connection ).writeAndFlush( eq( CommitMessage.COMMIT ), any( CommitTxResponseHandler.class ) );
         assertEquals( InternalBookmark.parse( bookmarkString ), await( stage ) );
@@ -304,23 +305,23 @@ public class BoltProtocolV3Test
 
     @ParameterizedTest
     @EnumSource( AccessMode.class )
-    void shouldRunInExplicitTransactionWithoutWaitingForRunResponse( AccessMode mode ) throws Exception
+    void shouldRunInUnmanagedTransactionWithoutWaitingForRunResponse(AccessMode mode ) throws Exception
     {
         testRunWithoutWaitingForRunResponse( false, TransactionConfig.empty(), mode );
     }
 
     @ParameterizedTest
     @EnumSource( AccessMode.class )
-    void shouldRunInExplicitTransactionAndWaitForSuccessRunResponse( AccessMode mode ) throws Exception
+    void shouldRunInUnmanagedTransactionAndWaitForSuccessRunResponse(AccessMode mode ) throws Exception
     {
-        testRunInExplicitTransactionAndWaitForRunResponse( true, mode );
+        testRunInUnmanagedTransactionAndWaitForRunResponse( true, mode );
     }
 
     @ParameterizedTest
     @EnumSource( AccessMode.class )
-    void shouldRunInExplicitTransactionAndWaitForFailureRunResponse( AccessMode mode ) throws Exception
+    void shouldRunInUnmanagedTransactionAndWaitForFailureRunResponse(AccessMode mode ) throws Exception
     {
-        testRunInExplicitTransactionAndWaitForRunResponse( false, mode );
+        testRunInUnmanagedTransactionAndWaitForRunResponse( false, mode );
     }
 
     @Test
@@ -341,8 +342,8 @@ public class BoltProtocolV3Test
         if ( autoCommitTx )
         {
             e = assertThrows( ClientException.class,
-                    () -> protocol.runInAutoCommitTransaction( connectionMock( "foo", protocol ), new Statement( "RETURN 1" ), BookmarkHolder.NO_OP,
-                            TransactionConfig.empty(), true ) );
+                    () -> protocol.runInAutoCommitTransaction( connectionMock( "foo", protocol ), new Query( "RETURN 1" ), BookmarkHolder.NO_OP,
+                            TransactionConfig.empty(), true, UNLIMITED_FETCH_SIZE ) );
         }
         else
         {
@@ -353,13 +354,13 @@ public class BoltProtocolV3Test
         assertThat( e.getMessage(), startsWith( "Database name parameter for selecting database is not supported" ) );
     }
 
-    protected void testRunInExplicitTransactionAndWaitForRunResponse( boolean success, AccessMode mode ) throws Exception
+    protected void testRunInUnmanagedTransactionAndWaitForRunResponse(boolean success, AccessMode mode ) throws Exception
     {
         // Given
         Connection connection = connectionMock( mode, protocol );
 
-        CompletableFuture<InternalStatementResultCursor> cursorFuture =
-                protocol.runInExplicitTransaction( connection, STATEMENT, mock( ExplicitTransaction.class ), true ).asyncResult().toCompletableFuture();
+        CompletableFuture<AsyncResultCursor> cursorFuture =
+                protocol.runInUnmanagedTransaction( connection, QUERY, mock( UnmanagedTransaction.class ), true, UNLIMITED_FETCH_SIZE ).asyncResult().toCompletableFuture();
 
         ResponseHandler runResponseHandler = verifyRunInvoked( connection, false, InternalBookmark.empty(), TransactionConfig.empty(), mode ).runHandler;
         assertFalse( cursorFuture.isDone() );
@@ -382,19 +383,19 @@ public class BoltProtocolV3Test
     protected void testRunWithoutWaitingForRunResponse( boolean autoCommitTx, TransactionConfig config, AccessMode mode ) throws Exception
     {
         Connection connection = connectionMock( mode, protocol );
-        InternalBookmark initialBookmark = InternalBookmark.parse( "neo4j:bookmark:v1:tx987" );
+        Bookmark initialBookmark = InternalBookmark.parse( "neo4j:bookmark:v1:tx987" );
 
-        CompletionStage<InternalStatementResultCursor> cursorStage;
+        CompletionStage<AsyncResultCursor> cursorStage;
         if ( autoCommitTx )
         {
             BookmarkHolder bookmarkHolder = new DefaultBookmarkHolder( initialBookmark );
-            cursorStage = protocol.runInAutoCommitTransaction( connection, STATEMENT, bookmarkHolder, config, false ).asyncResult();
+            cursorStage = protocol.runInAutoCommitTransaction( connection, QUERY, bookmarkHolder, config, false, UNLIMITED_FETCH_SIZE ).asyncResult();
         }
         else
         {
-            cursorStage = protocol.runInExplicitTransaction( connection, STATEMENT, mock( ExplicitTransaction.class ), false ).asyncResult();
+            cursorStage = protocol.runInUnmanagedTransaction( connection, QUERY, mock( UnmanagedTransaction.class ), false, UNLIMITED_FETCH_SIZE ).asyncResult();
         }
-        CompletableFuture<InternalStatementResultCursor> cursorFuture = cursorStage.toCompletableFuture();
+        CompletableFuture<AsyncResultCursor> cursorFuture = cursorStage.toCompletableFuture();
 
         assertTrue( cursorFuture.isDone() );
         assertNotNull( cursorFuture.get() );
@@ -409,13 +410,15 @@ public class BoltProtocolV3Test
         }
     }
 
-    protected void testSuccessfulRunInAutoCommitTxWithWaitingForResponse( InternalBookmark bookmark, TransactionConfig config, AccessMode mode ) throws Exception
+    protected void testSuccessfulRunInAutoCommitTxWithWaitingForResponse( Bookmark bookmark, TransactionConfig config, AccessMode mode ) throws Exception
     {
         Connection connection = connectionMock( mode, protocol );
         BookmarkHolder bookmarkHolder = new DefaultBookmarkHolder( bookmark );
 
-        CompletableFuture<InternalStatementResultCursor> cursorFuture =
-                protocol.runInAutoCommitTransaction( connection, STATEMENT, bookmarkHolder, config, true ).asyncResult().toCompletableFuture();
+        CompletableFuture<AsyncResultCursor> cursorFuture =
+                protocol.runInAutoCommitTransaction( connection, QUERY, bookmarkHolder, config, true, UNLIMITED_FETCH_SIZE )
+                        .asyncResult()
+                        .toCompletableFuture();
         assertFalse( cursorFuture.isDone() );
 
         ResponseHandlers handlers = verifyRunInvoked( connection, true, bookmark, config, mode );
@@ -429,13 +432,15 @@ public class BoltProtocolV3Test
         assertNotNull( cursorFuture.get() );
     }
 
-    protected void testFailedRunInAutoCommitTxWithWaitingForResponse( InternalBookmark bookmark, TransactionConfig config, AccessMode mode ) throws Exception
+    protected void testFailedRunInAutoCommitTxWithWaitingForResponse( Bookmark bookmark, TransactionConfig config, AccessMode mode ) throws Exception
     {
         Connection connection = connectionMock( mode, protocol );
         BookmarkHolder bookmarkHolder = new DefaultBookmarkHolder( bookmark );
 
-        CompletableFuture<InternalStatementResultCursor> cursorFuture =
-                protocol.runInAutoCommitTransaction( connection, STATEMENT, bookmarkHolder, config, true ).asyncResult().toCompletableFuture();
+        CompletableFuture<AsyncResultCursor> cursorFuture =
+                protocol.runInAutoCommitTransaction( connection, QUERY, bookmarkHolder, config, true, UNLIMITED_FETCH_SIZE )
+                        .asyncResult()
+                        .toCompletableFuture();
         assertFalse( cursorFuture.isDone() );
 
         ResponseHandler runResponseHandler = verifyRunInvoked( connection, true, bookmark, config, mode ).runHandler;
@@ -454,7 +459,7 @@ public class BoltProtocolV3Test
         return authToken;
     }
 
-    private static ResponseHandlers verifyRunInvoked( Connection connection, boolean session, InternalBookmark bookmark, TransactionConfig config, AccessMode mode )
+    private static ResponseHandlers verifyRunInvoked( Connection connection, boolean session, Bookmark bookmark, TransactionConfig config, AccessMode mode )
     {
         ArgumentCaptor<ResponseHandler> runHandlerCaptor = ArgumentCaptor.forClass( ResponseHandler.class );
         ArgumentCaptor<ResponseHandler> pullAllHandlerCaptor = ArgumentCaptor.forClass( ResponseHandler.class );
@@ -462,26 +467,18 @@ public class BoltProtocolV3Test
         RunWithMetadataMessage expectedMessage;
         if ( session )
         {
-            expectedMessage = RunWithMetadataMessage.autoCommitTxRunMessage( STATEMENT, config, ABSENT_DB_NAME, mode, bookmark );
+            expectedMessage = RunWithMetadataMessage.autoCommitTxRunMessage(QUERY, config, defaultDatabase(), mode, bookmark );
         }
         else
         {
-            expectedMessage = RunWithMetadataMessage.explicitTxRunMessage( STATEMENT );
+            expectedMessage = RunWithMetadataMessage.unmanagedTxRunMessage(QUERY);
         }
 
-        verify( connection ).writeAndFlush( eq( expectedMessage ), runHandlerCaptor.capture(),
-                eq( PullAllMessage.PULL_ALL ), pullAllHandlerCaptor.capture() );
+        verify( connection ).write( eq( expectedMessage ), runHandlerCaptor.capture() );
+        verify( connection ).writeAndFlush( eq( PullAllMessage.PULL_ALL ), pullAllHandlerCaptor.capture() );
 
         assertThat( runHandlerCaptor.getValue(), instanceOf( RunResponseHandler.class ) );
-
-        if ( session )
-        {
-            assertThat( pullAllHandlerCaptor.getValue(), instanceOf( SessionPullAllResponseHandler.class ) );
-        }
-        else
-        {
-            assertThat( pullAllHandlerCaptor.getValue(), instanceOf( TransactionPullAllResponseHandler.class ) );
-        }
+        assertThat( pullAllHandlerCaptor.getValue(), instanceOf( PullAllResponseHandler.class ) );
 
         return new ResponseHandlers( runHandlerCaptor.getValue(), pullAllHandlerCaptor.getValue() );
     }

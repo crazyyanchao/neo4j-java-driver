@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -24,12 +24,11 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.CompletionStage;
 
 import org.neo4j.driver.AccessMode;
+import org.neo4j.driver.Query;
 import org.neo4j.driver.Record;
-import org.neo4j.driver.Statement;
 import org.neo4j.driver.Value;
 import org.neo4j.driver.internal.BookmarkHolder;
 import org.neo4j.driver.internal.ReadOnlyBookmarkHolder;
@@ -45,54 +44,55 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.neo4j.driver.Values.parameters;
+import static org.neo4j.driver.internal.DatabaseNameUtil.SYSTEM_DATABASE_NAME;
+import static org.neo4j.driver.internal.DatabaseNameUtil.database;
+import static org.neo4j.driver.internal.DatabaseNameUtil.systemDatabase;
 import static org.neo4j.driver.internal.InternalBookmark.empty;
 import static org.neo4j.driver.internal.cluster.MultiDatabasesRoutingProcedureRunner.DATABASE_NAME;
 import static org.neo4j.driver.internal.cluster.MultiDatabasesRoutingProcedureRunner.MULTI_DB_GET_ROUTING_TABLE;
 import static org.neo4j.driver.internal.cluster.RoutingProcedureRunner.ROUTING_CONTEXT;
-import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.ABSENT_DB_NAME;
-import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.SYSTEM_DB_NAME;
 import static org.neo4j.driver.util.TestUtil.await;
 
 class MultiDatabasesRoutingProcedureRunnerTest extends AbstractRoutingProcedureRunnerTest
 {
     @ParameterizedTest
-    @ValueSource( strings = {ABSENT_DB_NAME, SYSTEM_DB_NAME, " this is a db name "} )
+    @ValueSource( strings = {"", SYSTEM_DATABASE_NAME, " this is a db name "} )
     void shouldCallGetRoutingTableWithEmptyMapOnSystemDatabaseForDatabase( String db )
     {
         TestRoutingProcedureRunner runner = new TestRoutingProcedureRunner( RoutingContext.EMPTY );
-        RoutingProcedureResponse response = await( runner.run( connection(), db, empty() ) );
+        RoutingProcedureResponse response = await( runner.run( connection(), database( db ), empty() ) );
 
         assertTrue( response.isSuccess() );
         assertEquals( 1, response.records().size() );
 
         assertThat( runner.bookmarkHolder, instanceOf( ReadOnlyBookmarkHolder.class ) );
-        assertThat( runner.connection.databaseName(), equalTo( SYSTEM_DB_NAME ) );
+        assertThat( runner.connection.databaseName(), equalTo( systemDatabase() ) );
         assertThat( runner.connection.mode(), equalTo( AccessMode.READ ) );
 
-        Statement statement = generateMultiDatabaseRoutingStatement( EMPTY_MAP, db );
-        assertThat( runner.procedure, equalTo( statement ) );
+        Query query = generateMultiDatabaseRoutingQuery( EMPTY_MAP, db );
+        assertThat( runner.procedure, equalTo(query) );
     }
 
     @ParameterizedTest
-    @ValueSource( strings = {ABSENT_DB_NAME, SYSTEM_DB_NAME, " this is a db name "} )
+    @ValueSource( strings = {"", SYSTEM_DATABASE_NAME, " this is a db name "} )
     void shouldCallGetRoutingTableWithParamOnSystemDatabaseForDatabase( String db )
     {
         URI uri = URI.create( "neo4j://localhost/?key1=value1&key2=value2" );
         RoutingContext context = new RoutingContext( uri );
 
         TestRoutingProcedureRunner runner = new TestRoutingProcedureRunner( context );
-        RoutingProcedureResponse response = await( runner.run( connection(), db, empty() ) );
+        RoutingProcedureResponse response = await( runner.run( connection(), database( db ), empty() ) );
 
         assertTrue( response.isSuccess() );
         assertEquals( 1, response.records().size() );
 
         assertThat( runner.bookmarkHolder, instanceOf( ReadOnlyBookmarkHolder.class ) );
-        assertThat( runner.connection.databaseName(), equalTo( SYSTEM_DB_NAME ) );
+        assertThat( runner.connection.databaseName(), equalTo( systemDatabase() ) );
         assertThat( runner.connection.mode(), equalTo( AccessMode.READ ) );
 
-        Statement statement = generateMultiDatabaseRoutingStatement( context.asMap(), db );
-        assertThat( response.procedure(), equalTo( statement ) );
-        assertThat( runner.procedure, equalTo( statement ) );
+        Query query = generateMultiDatabaseRoutingQuery( context.asMap(), db );
+        assertThat( response.procedure(), equalTo(query) );
+        assertThat( runner.procedure, equalTo(query) );
     }
 
     @Override
@@ -107,21 +107,17 @@ class MultiDatabasesRoutingProcedureRunnerTest extends AbstractRoutingProcedureR
         return new TestRoutingProcedureRunner( context, runProcedureResult );
     }
 
-    private static Statement generateMultiDatabaseRoutingStatement( Map context, String db )
+    private static Query generateMultiDatabaseRoutingQuery(Map context, String db )
     {
-        if ( Objects.equals( ABSENT_DB_NAME, db ) )
-        {
-            db = null;
-        }
         Value parameters = parameters( ROUTING_CONTEXT, context, DATABASE_NAME, db );
-        return new Statement( MULTI_DB_GET_ROUTING_TABLE, parameters );
+        return new Query( MULTI_DB_GET_ROUTING_TABLE, parameters );
     }
 
     private static class TestRoutingProcedureRunner extends MultiDatabasesRoutingProcedureRunner
     {
         final CompletionStage<List<Record>> runProcedureResult;
         private Connection connection;
-        private Statement procedure;
+        private Query procedure;
         private BookmarkHolder bookmarkHolder;
 
         TestRoutingProcedureRunner( RoutingContext context )
@@ -136,7 +132,7 @@ class MultiDatabasesRoutingProcedureRunnerTest extends AbstractRoutingProcedureR
         }
 
         @Override
-        CompletionStage<List<Record>> runProcedure( Connection connection, Statement procedure, BookmarkHolder bookmarkHolder )
+        CompletionStage<List<Record>> runProcedure(Connection connection, Query procedure, BookmarkHolder bookmarkHolder )
         {
             this.connection = connection;
             this.procedure = procedure;

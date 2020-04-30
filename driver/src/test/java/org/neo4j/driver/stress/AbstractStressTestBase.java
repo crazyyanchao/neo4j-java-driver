@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -22,6 +22,7 @@ import io.netty.util.internal.ConcurrentSet;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 
@@ -29,7 +30,6 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.OperatingSystemMXBean;
 import java.lang.reflect.Method;
 import java.net.URI;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -50,26 +50,24 @@ import java.util.logging.Level;
 import java.util.stream.IntStream;
 
 import org.neo4j.driver.AuthToken;
+import org.neo4j.driver.Bookmark;
 import org.neo4j.driver.Config;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Logger;
 import org.neo4j.driver.Logging;
+import org.neo4j.driver.Query;
 import org.neo4j.driver.Record;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.Statement;
-import org.neo4j.driver.StatementResult;
 import org.neo4j.driver.Transaction;
 import org.neo4j.driver.async.AsyncSession;
 import org.neo4j.driver.async.AsyncTransaction;
-import org.neo4j.driver.async.StatementResultCursor;
-import org.neo4j.driver.internal.Bookmark;
+import org.neo4j.driver.async.ResultCursor;
 import org.neo4j.driver.internal.InternalDriver;
 import org.neo4j.driver.internal.logging.DevNullLogger;
-import org.neo4j.driver.internal.util.EnabledOnNeo4jWith;
 import org.neo4j.driver.internal.util.Futures;
 import org.neo4j.driver.internal.util.Iterables;
-import org.neo4j.driver.internal.util.Neo4jFeature;
 import org.neo4j.driver.reactive.RxSession;
 import org.neo4j.driver.reactive.RxTransaction;
 import org.neo4j.driver.types.Node;
@@ -87,8 +85,10 @@ import static org.hamcrest.junit.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.neo4j.driver.SessionConfig.builder;
 
+@ExtendWith( DumpLogsOnFailureWatcher.class )
 abstract class AbstractStressTestBase<C extends AbstractContext>
 {
     private static final int THREAD_COUNT = Integer.getInteger( "threadCount", 8 );
@@ -98,7 +98,6 @@ abstract class AbstractStressTestBase<C extends AbstractContext>
 
     private static final int BIG_DATA_TEST_NODE_COUNT = Integer.getInteger( "bigDataTestNodeCount", 30_000 );
     private static final int BIG_DATA_TEST_BATCH_SIZE = Integer.getInteger( "bigDataTestBatchSize", 10_000 );
-    private static final Duration DEFAULT_BLOCKING_TIME_OUT = Duration.ofMinutes( 5 );
 
     private LoggerNameTrackingLogging logging;
     private ExecutorService executor;
@@ -110,14 +109,7 @@ abstract class AbstractStressTestBase<C extends AbstractContext>
     {
         logging = new LoggerNameTrackingLogging();
 
-        Config config = Config.builder()
-                .withLogging( logging )
-                .withMaxConnectionPoolSize( 100 )
-                .withConnectionAcquisitionTimeout( 1, MINUTES )
-                .withDriverMetrics()
-                .build();
-
-        driver = (InternalDriver) GraphDatabase.driver( databaseUri(), authToken(), config );
+        driver = (InternalDriver) GraphDatabase.driver( databaseUri(), authToken(), config() );
 
         ThreadFactory threadFactory = new DaemonThreadFactory( getClass().getSimpleName() + "-worker-" );
         executor = Executors.newCachedThreadPool( threadFactory );
@@ -130,7 +122,6 @@ abstract class AbstractStressTestBase<C extends AbstractContext>
         if ( driver != null )
         {
             driver.close();
-            System.out.println( driver.metrics() );
         }
     }
 
@@ -147,9 +138,9 @@ abstract class AbstractStressTestBase<C extends AbstractContext>
     }
 
     @Test
-    @EnabledOnNeo4jWith( Neo4jFeature.BOLT_V4 )
     void rxApiStressTest() throws Throwable
     {
+        assertRxIsAvailable();
         runStressTest( this::launchRxWorkerThreads );
     }
 
@@ -168,11 +159,16 @@ abstract class AbstractStressTestBase<C extends AbstractContext>
     }
 
     @Test
-    @EnabledOnNeo4jWith( Neo4jFeature.BOLT_V4 )
     void rxApiBigDataTest() throws Throwable
     {
+        assertRxIsAvailable();
         Bookmark bookmark = createNodesRx( bigDataTestBatchCount(), BIG_DATA_TEST_BATCH_SIZE, driver );
         readNodesRx( driver, bookmark, BIG_DATA_TEST_NODE_COUNT );
+    }
+
+    private void assertRxIsAvailable()
+    {
+        assumeTrue( driver.supportsMultiDb() );
     }
 
     private void runStressTest( Function<C,List<Future<?>>> threadLauncher ) throws Throwable
@@ -206,9 +202,22 @@ abstract class AbstractStressTestBase<C extends AbstractContext>
         verifyResults( context, resourcesInfo );
     }
 
+    abstract void dumpLogs();
+
     abstract URI databaseUri();
 
     abstract AuthToken authToken();
+
+    abstract Config.ConfigBuilder config( Config.ConfigBuilder builder );
+
+    Config config()
+    {
+        Config.ConfigBuilder builder = Config.builder()
+                .withLogging( logging )
+                .withMaxConnectionPoolSize( 100 )
+                .withConnectionAcquisitionTimeout( 1, MINUTES );
+        return config( builder ).build();
+    }
 
     abstract C createContext();
 
@@ -256,7 +265,7 @@ abstract class AbstractStressTestBase<C extends AbstractContext>
         commands.add( new BlockingFailingQuery<>( driver ) );
         commands.add( new BlockingFailingQueryInTx<>( driver ) );
 
-        commands.add( new FailedAuth<>( databaseUri(), logging ) );
+        commands.add( new FailedAuth<>( databaseUri(), config() ) );
 
         commands.addAll( createTestSpecificBlockingCommands() );
 
@@ -530,7 +539,7 @@ abstract class AbstractStressTestBase<C extends AbstractContext>
         {
             int nodesProcessed = session.readTransaction( tx ->
             {
-                StatementResult result = tx.run( "MATCH (n:Node) RETURN n" );
+                Result result = tx.run( "MATCH (n:Node) RETURN n" );
 
                 int nodesSeen = 0;
                 while ( result.hasNext() )
@@ -627,7 +636,7 @@ abstract class AbstractStressTestBase<C extends AbstractContext>
 
         Flux.concat( Flux.range( 0, batchCount ).map( batchIndex ->
             session.writeTransaction( tx -> createNodesInTxRx( tx, batchIndex, batchSize ) )
-        ) ).blockLast( DEFAULT_BLOCKING_TIME_OUT ); // throw any error if happened
+        ) ).blockLast(); // throw any error if happened
 
         long end = System.nanoTime();
         System.out.println( "Node creation with reactive API took: " + NANOSECONDS.toMillis( end - start ) + "ms" );
@@ -638,8 +647,8 @@ abstract class AbstractStressTestBase<C extends AbstractContext>
     private Publisher<Void> createNodesInTxRx( RxTransaction tx, int batchIndex, int batchSize )
     {
         return Flux.concat( Flux.range( 0, batchSize ).map( index -> batchIndex * batchSize + index ).map( nodeIndex -> {
-            Statement statement = createNodeInTxStatement( nodeIndex );
-            return Flux.from( tx.run( statement ).summary() ).then(); // As long as there is no error
+            Query query = createNodeInTxQuery( nodeIndex );
+            return Flux.from( tx.run(query).consume() ).then(); // As long as there is no error
         } ) );
     }
 
@@ -662,7 +671,7 @@ abstract class AbstractStressTestBase<C extends AbstractContext>
             verifyNodeProperties( node );
         } ).then() );
 
-        Flux.from( readQuery ).blockLast( DEFAULT_BLOCKING_TIME_OUT );
+        Flux.from( readQuery ).blockLast();
 
         assertEquals( expectedNodeCount, nodesSeen.get() );
 
@@ -682,37 +691,37 @@ abstract class AbstractStressTestBase<C extends AbstractContext>
 
     private static void createNodeInTx( Transaction tx, int nodeIndex )
     {
-        Statement statement = createNodeInTxStatement( nodeIndex );
-        tx.run( statement ).consume();
+        Query query = createNodeInTxQuery( nodeIndex );
+        tx.run(query).consume();
     }
 
     private static CompletionStage<Throwable> createNodesInTxAsync( AsyncTransaction tx, int batchIndex, int batchSize )
     {
         @SuppressWarnings( "unchecked" )
-        CompletableFuture<Void>[] statementFutures = IntStream.range( 0, batchSize )
+        CompletableFuture<Void>[] queryFutures = IntStream.range( 0, batchSize )
                 .map( index -> batchIndex * batchSize + index )
                 .mapToObj( nodeIndex -> createNodeInTxAsync( tx, nodeIndex ) )
                 .toArray( CompletableFuture[]::new );
 
-        return CompletableFuture.allOf( statementFutures )
+        return CompletableFuture.allOf( queryFutures )
                 .thenApply( ignored -> (Throwable) null )
                 .exceptionally( error -> error );
     }
 
     private static CompletableFuture<Void> createNodeInTxAsync( AsyncTransaction tx, int nodeIndex )
     {
-        Statement statement = createNodeInTxStatement( nodeIndex );
-        return tx.runAsync( statement )
-                .thenCompose( StatementResultCursor::consumeAsync )
+        Query query = createNodeInTxQuery( nodeIndex );
+        return tx.runAsync(query)
+                .thenCompose( ResultCursor::consumeAsync )
                 .thenApply( ignore -> (Void) null )
                 .toCompletableFuture();
     }
 
-    private static Statement createNodeInTxStatement( int nodeIndex )
+    private static Query createNodeInTxQuery(int nodeIndex )
     {
         String query = "CREATE (n:Test:Node) SET n = $props";
         Map<String,Object> params = singletonMap( "props", createNodeProperties( nodeIndex ) );
-        return new Statement( query, params );
+        return new Query( query, params );
     }
 
     private static Map<String,Object> createNodeProperties( int nodeIndex )

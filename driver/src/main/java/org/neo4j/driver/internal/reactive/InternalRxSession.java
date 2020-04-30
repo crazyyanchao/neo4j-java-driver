@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,6 +18,7 @@
  */
 package org.neo4j.driver.internal.reactive;
 
+import org.neo4j.driver.Query;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 
@@ -25,13 +26,13 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import org.neo4j.driver.AccessMode;
-import org.neo4j.driver.Statement;
 import org.neo4j.driver.TransactionConfig;
-import org.neo4j.driver.internal.Bookmark;
+import org.neo4j.driver.Bookmark;
+import org.neo4j.driver.exceptions.TransactionNestingException;
 import org.neo4j.driver.internal.async.NetworkSession;
-import org.neo4j.driver.internal.cursor.RxStatementResultCursor;
+import org.neo4j.driver.internal.cursor.RxResultCursor;
 import org.neo4j.driver.internal.util.Futures;
-import org.neo4j.driver.reactive.RxStatementResult;
+import org.neo4j.driver.reactive.RxResult;
 import org.neo4j.driver.reactive.RxSession;
 import org.neo4j.driver.reactive.RxTransaction;
 import org.neo4j.driver.reactive.RxTransactionWork;
@@ -39,7 +40,7 @@ import org.neo4j.driver.reactive.RxTransactionWork;
 import static org.neo4j.driver.internal.reactive.RxUtils.createEmptyPublisher;
 import static org.neo4j.driver.internal.reactive.RxUtils.createMono;
 
-public class InternalRxSession extends AbstractRxStatementRunner implements RxSession
+public class InternalRxSession extends AbstractRxQueryRunner implements RxSession
 {
     private final NetworkSession session;
 
@@ -97,59 +98,60 @@ public class InternalRxSession extends AbstractRxStatementRunner implements RxSe
     }
 
     @Override
-    public <T> Publisher<T> readTransaction( RxTransactionWork<Publisher<T>> work )
+    public <T> Publisher<T> readTransaction( RxTransactionWork<? extends Publisher<T>> work )
     {
         return readTransaction( work, TransactionConfig.empty() );
     }
 
     @Override
-    public <T> Publisher<T> readTransaction( RxTransactionWork<Publisher<T>> work, TransactionConfig config )
+    public <T> Publisher<T> readTransaction( RxTransactionWork<? extends Publisher<T>> work, TransactionConfig config )
     {
         return runTransaction( AccessMode.READ, work, config );
     }
 
     @Override
-    public <T> Publisher<T> writeTransaction( RxTransactionWork<Publisher<T>> work )
+    public <T> Publisher<T> writeTransaction( RxTransactionWork<? extends Publisher<T>> work )
     {
         return writeTransaction( work, TransactionConfig.empty() );
     }
 
     @Override
-    public <T> Publisher<T> writeTransaction( RxTransactionWork<Publisher<T>> work, TransactionConfig config )
+    public <T> Publisher<T> writeTransaction( RxTransactionWork<? extends Publisher<T>> work, TransactionConfig config )
     {
         return runTransaction( AccessMode.WRITE, work, config );
     }
 
-    private <T> Publisher<T> runTransaction( AccessMode mode, RxTransactionWork<Publisher<T>> work, TransactionConfig config )
+    private <T> Publisher<T> runTransaction( AccessMode mode, RxTransactionWork<? extends Publisher<T>> work, TransactionConfig config )
     {
-        Flux<T> repeatableWork = Flux.usingWhen( beginTransaction( mode, config ), work::execute, RxTransaction::commit, RxTransaction::rollback );
+        Flux<T> repeatableWork = Flux.usingWhen( beginTransaction( mode, config ), work::execute,
+                RxTransaction::commit, ( tx, error ) -> tx.rollback(), null );
         return session.retryLogic().retryRx( repeatableWork );
     }
 
     @Override
-    public RxStatementResult run( String statement, TransactionConfig config )
+    public RxResult run(String query, TransactionConfig config )
     {
-        return run( new Statement( statement ), config );
+        return run( new Query( query ), config );
     }
 
     @Override
-    public RxStatementResult run( String statement, Map<String,Object> parameters, TransactionConfig config )
+    public RxResult run(String query, Map<String,Object> parameters, TransactionConfig config )
     {
-        return run( new Statement( statement, parameters ), config );
+        return run( new Query( query, parameters ), config );
     }
 
     @Override
-    public RxStatementResult run( Statement statement )
+    public RxResult run(Query query)
     {
-        return run( statement, TransactionConfig.empty() );
+        return run(query, TransactionConfig.empty() );
     }
 
     @Override
-    public RxStatementResult run( Statement statement, TransactionConfig config )
+    public RxResult run(Query query, TransactionConfig config )
     {
-        return new InternalRxStatementResult( () -> {
-            CompletableFuture<RxStatementResultCursor> resultCursorFuture = new CompletableFuture<>();
-            session.runRx( statement, config ).whenComplete( ( cursor, completionError ) -> {
+        return new InternalRxResult( () -> {
+            CompletableFuture<RxResultCursor> resultCursorFuture = new CompletableFuture<>();
+            session.runRx(query, config ).whenComplete( (cursor, completionError ) -> {
                 if ( cursor != null )
                 {
                     resultCursorFuture.complete( cursor );
@@ -168,11 +170,18 @@ public class InternalRxSession extends AbstractRxStatementRunner implements RxSe
         // We failed to create a result cursor so we cannot rely on result cursor to cleanup resources.
         // Therefore we will first release the connection that might have been created in the session and then notify the error.
         // The logic here shall be the same as `SessionPullResponseHandler#afterFailure`.
-        // The reason we need to release connection in session is that we do not have a `rxSession.close()`;
+        // The reason we need to release connection in session is that we made `rxSession.close()` optional;
         // Otherwise, session.close shall handle everything for us.
         Throwable error = Futures.completionExceptionCause( completionError );
-        session.releaseConnectionAsync().whenComplete( ( ignored, closeError ) ->
-                returnFuture.completeExceptionally( Futures.combineErrors( error, closeError ) ) );
+        if ( error instanceof TransactionNestingException )
+        {
+            returnFuture.completeExceptionally( error );
+        }
+        else
+        {
+            session.releaseConnectionAsync().whenComplete( ( ignored, closeError ) ->
+                    returnFuture.completeExceptionally( Futures.combineErrors( error, closeError ) ) );
+        }
     }
 
     @Override

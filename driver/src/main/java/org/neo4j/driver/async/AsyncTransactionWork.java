@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -24,7 +24,7 @@ package org.neo4j.driver.async;
  * {@link AsyncSession#writeTransactionAsync(AsyncTransactionWork)} (AsyncTransactionWork)} methods.
  *
  * @param <T> the return type of this work.
- * @since 2.0
+ * @since 4.0
  */
 public interface AsyncTransactionWork<T>
 {

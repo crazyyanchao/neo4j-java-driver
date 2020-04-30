@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -28,14 +28,12 @@ import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Stream;
 
-import org.neo4j.driver.internal.util.DisabledOnNeo4jWith;
-import org.neo4j.driver.internal.util.EnabledOnNeo4jWith;
-import org.neo4j.driver.internal.value.MapValue;
 import org.neo4j.driver.Record;
-import org.neo4j.driver.StatementResult;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Value;
 import org.neo4j.driver.exceptions.ClientException;
 import org.neo4j.driver.exceptions.ServiceUnavailableException;
+import org.neo4j.driver.internal.value.MapValue;
 import org.neo4j.driver.util.ParallelizableIT;
 import org.neo4j.driver.util.SessionExtension;
 import org.neo4j.driver.util.TestUtil;
@@ -43,19 +41,18 @@ import org.neo4j.driver.util.TestUtil;
 import static java.util.Arrays.asList;
 import static java.util.Collections.singletonMap;
 import static java.util.stream.Collectors.toList;
-import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.neo4j.driver.internal.util.ValueFactory.emptyNodeValue;
-import static org.neo4j.driver.internal.util.ValueFactory.emptyRelationshipValue;
-import static org.neo4j.driver.internal.util.ValueFactory.filledPathValue;
 import static org.neo4j.driver.Values.ofInteger;
 import static org.neo4j.driver.Values.ofValue;
 import static org.neo4j.driver.Values.parameters;
+import static org.neo4j.driver.internal.util.ValueFactory.emptyNodeValue;
+import static org.neo4j.driver.internal.util.ValueFactory.emptyRelationshipValue;
+import static org.neo4j.driver.internal.util.ValueFactory.filledPathValue;
 
 @ParallelizableIT
 class ParametersIT
@@ -69,8 +66,8 @@ class ParametersIT
     void shouldBeAbleToSetAndReturnBooleanProperty()
     {
         // When
-        StatementResult result = session.run(
-                "CREATE (a {value:{value}}) RETURN a.value", parameters( "value", true ) );
+        Result result = session.run(
+                "CREATE (a {value:$value}) RETURN a.value", parameters( "value", true ) );
 
         // Then
         for ( Record record : result.list() )
@@ -85,8 +82,8 @@ class ParametersIT
     void shouldBeAbleToSetAndReturnByteProperty()
     {
         // When
-        StatementResult result = session.run(
-                "CREATE (a {value:{value}}) RETURN a.value", parameters( "value", (byte) 1 ) );
+        Result result = session.run(
+                "CREATE (a {value:$value}) RETURN a.value", parameters( "value", (byte) 1 ) );
 
         // Then
         for ( Record record : result.list() )
@@ -101,8 +98,8 @@ class ParametersIT
     void shouldBeAbleToSetAndReturnShortProperty()
     {
         // When
-        StatementResult result = session.run(
-                "CREATE (a {value:{value}}) RETURN a.value", parameters( "value", (short) 1 ) );
+        Result result = session.run(
+                "CREATE (a {value:$value}) RETURN a.value", parameters( "value", (short) 1 ) );
 
         // Then
         for ( Record record : result.list() )
@@ -117,8 +114,8 @@ class ParametersIT
     void shouldBeAbleToSetAndReturnIntegerProperty()
     {
         // When
-        StatementResult result = session.run(
-                "CREATE (a {value:{value}}) RETURN a.value", parameters( "value", 1 ) );
+        Result result = session.run(
+                "CREATE (a {value:$value}) RETURN a.value", parameters( "value", 1 ) );
 
         // Then
         for ( Record record : result.list() )
@@ -134,8 +131,8 @@ class ParametersIT
     void shouldBeAbleToSetAndReturnLongProperty()
     {
         // When
-        StatementResult result = session.run(
-                "CREATE (a {value:{value}}) RETURN a.value", parameters( "value", 1L ) );
+        Result result = session.run(
+                "CREATE (a {value:$value}) RETURN a.value", parameters( "value", 1L ) );
 
         // Then
         for ( Record record : result.list() )
@@ -151,8 +148,8 @@ class ParametersIT
     void shouldBeAbleToSetAndReturnDoubleProperty()
     {
         // When
-        StatementResult result = session.run(
-                "CREATE (a {value:{value}}) RETURN a.value", parameters( "value", 6.28 ) );
+        Result result = session.run(
+                "CREATE (a {value:$value}) RETURN a.value", parameters( "value", 6.28 ) );
 
         // Then
         for ( Record record : result.list() )
@@ -189,8 +186,8 @@ class ParametersIT
     {
         // When
         boolean[] arrayValue = new boolean[]{true, true, true};
-        StatementResult result = session.run(
-                "CREATE (a {value:{value}}) RETURN a.value", parameters( "value", arrayValue ) );
+        Result result = session.run(
+                "CREATE (a {value:$value}) RETURN a.value", parameters( "value", arrayValue ) );
 
         // Then
         for ( Record record : result.list() )
@@ -212,8 +209,8 @@ class ParametersIT
     {
         // When
         int[] arrayValue = new int[]{42, 42, 42};
-        StatementResult result = session.run(
-                "CREATE (a {value:{value}}) RETURN a.value", parameters( "value", arrayValue ) );
+        Result result = session.run(
+                "CREATE (a {value:$value}) RETURN a.value", parameters( "value", arrayValue ) );
 
         // Then
         for ( Record record : result.list() )
@@ -235,8 +232,8 @@ class ParametersIT
     {
         // When
         double[] arrayValue = new double[]{6.28, 6.28, 6.28};
-        StatementResult result = session.run(
-                "CREATE (a {value:{value}}) RETURN a.value", parameters( "value", arrayValue ) );
+        Result result = session.run(
+                "CREATE (a {value:$value}) RETURN a.value", parameters( "value", arrayValue ) );
 
         // Then
         for ( Record record : result.list() )
@@ -263,8 +260,8 @@ class ParametersIT
     {
         String[] arrayValue = new String[]{str, str, str};
 
-        StatementResult result = session.run(
-                "CREATE (a {value:{value}}) RETURN a.value", parameters( "value", arrayValue ) );
+        Result result = session.run(
+                "CREATE (a {value:$value}) RETURN a.value", parameters( "value", arrayValue ) );
 
         // Then
         for ( Record record : result.list() )
@@ -296,7 +293,7 @@ class ParametersIT
         String bigString = new String( bigStr );
 
         // When
-        Value val = session.run( "RETURN {p} AS p", parameters( "p", bigString ) ).peek().get( "p" );
+        Value val = session.run( "RETURN $p AS p", parameters( "p", bigString ) ).peek().get( "p" );
 
         // Then
         assertThat( val.asString(), equalTo( bigString ) );
@@ -306,8 +303,8 @@ class ParametersIT
     void shouldBeAbleToSetAndReturnBooleanPropertyWithinMap()
     {
         // When
-        StatementResult result = session.run(
-                "CREATE (a {value:{value}.v}) RETURN a.value",
+        Result result = session.run(
+                "CREATE (a {value:$value.v}) RETURN a.value",
                 parameters( "value", parameters( "v", true ) ) );
 
         // Then
@@ -324,8 +321,8 @@ class ParametersIT
     void shouldBeAbleToSetAndReturnIntegerPropertyWithinMap()
     {
         // When
-        StatementResult result = session.run(
-                "CREATE (a {value:{value}.v}) RETURN a.value",
+        Result result = session.run(
+                "CREATE (a {value:$value.v}) RETURN a.value",
                 parameters( "value", parameters( "v", 42 ) ) );
 
         // Then
@@ -342,8 +339,8 @@ class ParametersIT
     void shouldBeAbleToSetAndReturnDoublePropertyWithinMap()
     {
         // When
-        StatementResult result = session.run(
-                "CREATE (a {value:{value}.v}) RETURN a.value",
+        Result result = session.run(
+                "CREATE (a {value:$value.v}) RETURN a.value",
                 parameters( "value", parameters( "v", 6.28 ) ) );
 
         // Then
@@ -360,8 +357,8 @@ class ParametersIT
     void shouldBeAbleToSetAndReturnStringPropertyWithinMap()
     {
         // When
-        StatementResult result = session.run(
-                "CREATE (a {value:{value}.v}) RETURN a.value",
+        Result result = session.run(
+                "CREATE (a {value:$value.v}) RETURN a.value",
                 parameters( "value", parameters( "v", "Mjölnir" ) ) );
 
         // Then
@@ -458,7 +455,7 @@ class ParametersIT
     {
         Stream<Integer> stream = Stream.of( 1, 2, 3, 4, 5, 42 );
 
-        StatementResult result = session.run( "RETURN $value", singletonMap( "value", stream ) );
+        Result result = session.run( "RETURN $value", singletonMap( "value", stream ) );
         Value receivedValue = result.single().get( 0 );
 
         assertEquals( asList( 1, 2, 3, 4, 5, 42 ), receivedValue.asList( ofInteger() ) );
@@ -466,7 +463,7 @@ class ParametersIT
 
     private static void testBytesProperty( byte[] array )
     {
-        StatementResult result = session.run( "CREATE (a {value:{value}}) RETURN a.value", parameters( "value", array ) );
+        Result result = session.run( "CREATE (a {value:$value}) RETURN a.value", parameters( "value", array ) );
 
         for ( Record record : result.list() )
         {
@@ -478,8 +475,8 @@ class ParametersIT
 
     private static void testStringProperty( String string )
     {
-        StatementResult result = session.run(
-                "CREATE (a {value:{value}}) RETURN a.value", parameters( "value", string ) );
+        Result result = session.run(
+                "CREATE (a {value:$value}) RETURN a.value", parameters( "value", string ) );
 
         for ( Record record : result.list() )
         {
@@ -506,7 +503,7 @@ class ParametersIT
 
     private static void testSendAndReceiveValue( Object value )
     {
-        StatementResult result = session.run( "RETURN $value", singletonMap( "value", value ) );
+        Result result = session.run( "RETURN $value", singletonMap( "value", value ) );
         Object receivedValue = result.single().get( 0 ).asObject();
         assertArrayEquals( new Object[]{value}, new Object[]{receivedValue} );
     }

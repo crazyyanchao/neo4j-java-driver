@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -19,24 +19,27 @@
 package org.neo4j.driver.internal.async;
 
 import org.neo4j.driver.AccessMode;
-import org.neo4j.driver.internal.InternalBookmark;
+import org.neo4j.driver.Bookmark;
+import org.neo4j.driver.internal.DatabaseName;
 import org.neo4j.driver.internal.spi.Connection;
 
+import static org.neo4j.driver.internal.DatabaseNameUtil.defaultDatabase;
+import static org.neo4j.driver.internal.DatabaseNameUtil.systemDatabase;
 import static org.neo4j.driver.internal.InternalBookmark.empty;
-import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.ABSENT_DB_NAME;
 
 /**
  * A {@link Connection} shall fulfil this {@link ImmutableConnectionContext} when acquired from a connection provider.
  */
 public class ImmutableConnectionContext implements ConnectionContext
 {
-    private static final ConnectionContext SIMPLE = new ImmutableConnectionContext( ABSENT_DB_NAME, empty(), AccessMode.READ );
+    private static final ConnectionContext SINGLE_DB_CONTEXT = new ImmutableConnectionContext( defaultDatabase(), empty(), AccessMode.READ );
+    private static final ConnectionContext MULTI_DB_CONTEXT = new ImmutableConnectionContext( systemDatabase(), empty(), AccessMode.READ );
 
-    private final String databaseName;
+    private final DatabaseName databaseName;
     private final AccessMode mode;
-    private final InternalBookmark rediscoveryBookmark;
+    private final Bookmark rediscoveryBookmark;
 
-    public ImmutableConnectionContext( String databaseName, InternalBookmark bookmark, AccessMode mode )
+    public ImmutableConnectionContext( DatabaseName databaseName, Bookmark bookmark, AccessMode mode )
     {
         this.databaseName = databaseName;
         this.rediscoveryBookmark = bookmark;
@@ -44,7 +47,7 @@ public class ImmutableConnectionContext implements ConnectionContext
     }
 
     @Override
-    public String databaseName()
+    public DatabaseName databaseName()
     {
         return databaseName;
     }
@@ -56,7 +59,7 @@ public class ImmutableConnectionContext implements ConnectionContext
     }
 
     @Override
-    public InternalBookmark rediscoveryBookmark()
+    public Bookmark rediscoveryBookmark()
     {
         return rediscoveryBookmark;
     }
@@ -64,10 +67,10 @@ public class ImmutableConnectionContext implements ConnectionContext
     /**
      * A simple context is used to test connectivity with a remote server/cluster.
      * As long as there is a read only service, the connection shall be established successfully.
-     * This context should be applicable for both bolt v4 and bolt v3 routing table rediscovery.
+     * Depending on whether multidb is supported or not, this method returns different context for routing table discovery.
      */
-    public static ConnectionContext simple()
+    public static ConnectionContext simple( boolean supportsMultiDb )
     {
-        return SIMPLE;
+        return supportsMultiDb ? MULTI_DB_CONTEXT : SINGLE_DB_CONTEXT;
     }
 }

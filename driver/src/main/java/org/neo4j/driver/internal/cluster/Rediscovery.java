@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,12 +18,16 @@
  */
 package org.neo4j.driver.internal.cluster;
 
+import java.util.List;
 import java.util.concurrent.CompletionStage;
 
-import org.neo4j.driver.internal.InternalBookmark;
+import org.neo4j.driver.Bookmark;
+import org.neo4j.driver.internal.BoltServerAddress;
 import org.neo4j.driver.internal.spi.ConnectionPool;
 
 public interface Rediscovery
 {
-    CompletionStage<ClusterComposition> lookupClusterComposition( RoutingTable routingTable, ConnectionPool connectionPool, InternalBookmark bookmark );
+    CompletionStage<ClusterComposition> lookupClusterComposition( RoutingTable routingTable, ConnectionPool connectionPool, Bookmark bookmark );
+
+    List<BoltServerAddress> resolve();
 }

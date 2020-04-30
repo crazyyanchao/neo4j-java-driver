@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -28,17 +28,17 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import org.neo4j.driver.internal.cluster.RoutingSettings;
-import org.neo4j.driver.internal.util.io.ChannelTrackingDriverFactory;
-import org.neo4j.driver.internal.util.DriverFactoryWithOneEventLoopThread;
-import org.neo4j.driver.internal.util.FakeClock;
 import org.neo4j.driver.Config;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
 import org.neo4j.driver.Transaction;
 import org.neo4j.driver.exceptions.ClientException;
+import org.neo4j.driver.internal.cluster.RoutingSettings;
+import org.neo4j.driver.internal.security.SecurityPlanImpl;
+import org.neo4j.driver.internal.util.FakeClock;
+import org.neo4j.driver.internal.util.io.ChannelTrackingDriverFactory;
 import org.neo4j.driver.util.DatabaseExtension;
 import org.neo4j.driver.util.ParallelizableIT;
 
@@ -87,10 +87,10 @@ class ConnectionPoolIT
         sessionGrabber.start();
 
         // When
-        neo4j.restartDb();
+        neo4j.forceRestartDb();
 
         // Then we accept a hump with failing sessions, but demand that failures stop as soon as the server is back up.
-        sessionGrabber.assertSessionsAvailableWithin( 60 );
+        sessionGrabber.assertSessionsAvailableWithin( 120 );
     }
 
     @Test
@@ -101,7 +101,7 @@ class ConnectionPoolIT
 
         int maxConnLifetimeHours = 3;
         Config config = Config.builder().withMaxConnectionLifetime( maxConnLifetimeHours, TimeUnit.HOURS ).build();
-        driver = driverFactory.newInstance( neo4j.uri(), neo4j.authToken(), RoutingSettings.DEFAULT, DEFAULT, config );
+        driver = driverFactory.newInstance( neo4j.uri(), neo4j.authToken(), RoutingSettings.DEFAULT, DEFAULT, config, SecurityPlanImpl.insecure() );
 
         // force driver create channel and return it to the pool
         startAndCloseTransactions( driver, 1 );
@@ -141,9 +141,10 @@ class ConnectionPoolIT
         Config config = Config.builder()
                 .withMaxConnectionPoolSize( maxPoolSize )
                 .withConnectionAcquisitionTimeout( 542, TimeUnit.MILLISECONDS )
+                .withEventLoopThreads( 1 )
                 .build();
 
-        driver = new DriverFactoryWithOneEventLoopThread().newInstance( neo4j.uri(), neo4j.authToken(), config );
+        driver = GraphDatabase.driver( neo4j.uri(), neo4j.authToken(), config );
 
         ClientException e = assertThrows( ClientException.class, () -> startAndCloseTransactions( driver, maxPoolSize + 1 ) );
         assertThat( e, is( connectionAcquisitionTimeoutError( 542 ) ) );
@@ -154,7 +155,7 @@ class ConnectionPoolIT
     {
         List<Session> sessions = new ArrayList<>( txCount );
         List<Transaction> transactions = new ArrayList<>( txCount );
-        List<StatementResult> results = new ArrayList<>( txCount );
+        List<Result> results = new ArrayList<>( txCount );
         try
         {
             for ( int i = 0; i < txCount; i++ )
@@ -165,20 +166,19 @@ class ConnectionPoolIT
                 Transaction tx = session.beginTransaction();
                 transactions.add( tx );
 
-                StatementResult result = tx.run( "RETURN 1" );
+                Result result = tx.run( "RETURN 1" );
                 results.add( result );
             }
         }
         finally
         {
-            for ( StatementResult result : results )
+            for ( Result result : results )
             {
                 result.consume();
             }
             for ( Transaction tx : transactions )
             {
-                tx.success();
-                tx.close();
+                tx.commit();
             }
             for ( Session session : sessions )
             {
@@ -220,6 +220,7 @@ class ConnectionPoolIT
         private volatile boolean sessionsAreAvailable = false;
         private volatile boolean run = true;
         private volatile Throwable lastExceptionFromDriver;
+        private final int sleepTimeout = 100;
 
         SessionGrabber( Driver driver )
         {
@@ -228,7 +229,7 @@ class ConnectionPoolIT
 
         public void start()
         {
-            new Thread(this).start();
+            new Thread( this ).start();
         }
 
         @Override
@@ -251,6 +252,14 @@ class ConnectionPoolIT
                         lastExceptionFromDriver = e;
                         sessionsAreAvailable = false;
                     }
+                    try
+                    {
+                        Thread.sleep( sleepTimeout );
+                    }
+                    catch ( InterruptedException e )
+                    {
+                        throw new RuntimeException( e );
+                    }
                 }
             } finally
             {
@@ -268,7 +277,7 @@ class ConnectionPoolIT
                     // Success!
                     return;
                 }
-                Thread.sleep( 100 );
+                Thread.sleep( sleepTimeout );
             }
 
             // Failure - timeout :(

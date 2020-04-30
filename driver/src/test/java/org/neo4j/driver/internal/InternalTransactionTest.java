@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -23,11 +23,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-import org.neo4j.driver.Statement;
-import org.neo4j.driver.StatementResult;
+import org.neo4j.driver.Query;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Transaction;
 import org.neo4j.driver.Value;
 import org.neo4j.driver.internal.async.ConnectionContext;
@@ -73,7 +74,7 @@ class InternalTransactionTest
         tx = session.beginTransaction();
     }
 
-    private static Stream<Function<Transaction,StatementResult>> allSessionRunMethods()
+    private static Stream<Function<Transaction, Result>> allSessionRunMethods()
     {
         return Stream.of(
                 tx -> tx.run( "RETURN 1" ),
@@ -81,26 +82,26 @@ class InternalTransactionTest
                 tx -> tx.run( "RETURN $x", singletonMap( "x", 1 ) ),
                 tx -> tx.run( "RETURN $x",
                         new InternalRecord( singletonList( "x" ), new Value[]{new IntegerValue( 1 )} ) ),
-                tx -> tx.run( new Statement( "RETURN $x", parameters( "x", 1 ) ) )
+                tx -> tx.run( new Query( "RETURN $x", parameters( "x", 1 ) ) )
         );
     }
 
     @ParameterizedTest
     @MethodSource( "allSessionRunMethods" )
-    void shouldFlushOnRun( Function<Transaction,StatementResult> runReturnOne ) throws Throwable
+    void shouldFlushOnRun( Function<Transaction, Result> runReturnOne ) throws Throwable
     {
         setupSuccessfulRunAndPull( connection );
 
-        StatementResult result = runReturnOne.apply( tx );
-        ResultSummary summary = result.summary();
+        Result result = runReturnOne.apply( tx );
+        ResultSummary summary = result.consume();
 
-        verifyRunAndPull( connection, summary.statement().text() );
+        verifyRunAndPull( connection, summary.query().text() );
     }
 
     @Test
     void shouldCommit() throws Throwable
     {
-        tx.success();
+        tx.commit();
         tx.close();
 
         verifyCommitTx( connection );
@@ -119,7 +120,7 @@ class InternalTransactionTest
     @Test
     void shouldRollback() throws Throwable
     {
-        tx.failure();
+        tx.rollback();
         tx.close();
 
         verifyRollbackTx( connection );
@@ -132,7 +133,6 @@ class InternalTransactionTest
         setupFailingRun( connection, new RuntimeException( "Bang!" ) );
         assertThrows( RuntimeException.class, () -> tx.run( "RETURN 1" ).consume() );
 
-        tx.success();
         tx.close();
 
         verify( connection ).release();
@@ -143,8 +143,7 @@ class InternalTransactionTest
     void shouldReleaseConnectionWhenFailedToCommit() throws Throwable
     {
         setupFailingCommit( connection );
-        tx.success();
-        assertThrows( Exception.class, () -> tx.close() );
+        assertThrows( Exception.class, () -> tx.commit() );
 
         verify( connection ).release();
         assertFalse( tx.isOpen() );
@@ -153,8 +152,19 @@ class InternalTransactionTest
     @Test
     void shouldReleaseConnectionWhenFailedToRollback() throws Throwable
     {
+        shouldReleaseConnectionWhenFailedToAction( Transaction::rollback );
+    }
+
+    @Test
+    void shouldReleaseConnectionWhenFailedToClose() throws Throwable
+    {
+        shouldReleaseConnectionWhenFailedToAction( Transaction::close );
+    }
+
+    private void shouldReleaseConnectionWhenFailedToAction( Consumer<Transaction> txAction )
+    {
         setupFailingRollback( connection );
-        assertThrows( Exception.class, () -> tx.close() );
+        assertThrows( Exception.class, () -> txAction.accept( tx ) );
 
         verify( connection ).release();
         assertFalse( tx.isOpen() );

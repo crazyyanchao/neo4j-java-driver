@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -19,9 +19,11 @@
 package org.neo4j.driver.stress;
 
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.neo4j.driver.AccessMode;
 import org.neo4j.driver.Driver;
@@ -45,13 +47,12 @@ public class RxFailingQuery<C extends AbstractContext> extends AbstractRxQuery<C
     public CompletionStage<Void> execute( C context )
     {
         CompletableFuture<Void> queryFinished = new CompletableFuture<>();
-        Flux.using( () -> newSession( AccessMode.READ, context ),
+        Flux.usingWhen( Mono.fromSupplier( () -> newSession( AccessMode.READ, context ) ),
                 session -> session.run( "UNWIND [10, 5, 0] AS x RETURN 10 / x" ).records(),
                 RxSession::close )
                 .subscribe( record -> {
                     assertThat( record.get( 0 ).asInt(), either( equalTo( 1 ) ).or( equalTo( 2 ) ) );
-                    queryFinished.complete( null );
-                }, error -> {
+                    }, error -> {
                     Throwable cause = Futures.completionExceptionCause( error );
                     assertThat( cause, is( arithmeticError() ) );
                     queryFinished.complete( null );

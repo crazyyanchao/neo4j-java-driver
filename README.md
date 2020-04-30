@@ -19,7 +19,7 @@ The table below shows runtime compatibility for the currently-supported driver v
 |---------------|:------:|:-------:|
 | 1.6           |   X    |   X     |
 | 1.7           |   X    |   X     |
-| 2.0           |   X    |   X     |
+| 4.0           |   X    |   X     |
 
 The automatic module name of the driver for the Java Module System is `org.neo4j.driver`.
 
@@ -49,7 +49,7 @@ To run a simple query, the following can be used:
 ```java
 Driver driver = GraphDatabase.driver("bolt://localhost:7687", AuthTokens.basic("neo4j", "PasSW0rd"));
 try (Session session = driver.session()) {
-    StatementResult rs = session.run("CREATE (n) RETURN n");
+    Result result = session.run("CREATE (n) RETURN n");
 }
 driver.close();
 ```
@@ -99,7 +99,7 @@ To use the driver in a project, please use the released driver via Maven Central
 
 #### Running Tests and Creating a Package
 
-The driver unit tests relies on latest [`boltkit`](https://github.com/neo4j-contrib/boltkit) installed on your local machine. 
+The driver unit tests relies on latest [`boltkit`](https://github.com/neo4j-drivers/boltkit) installed on your local machine. 
 If `boltkit` is not installed, then all tests that requires `boltkit` will be ignored and will not be executed.
 
 The following Maven command shows how to run all tests and build the source code:

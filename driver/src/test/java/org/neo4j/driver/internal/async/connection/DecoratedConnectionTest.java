@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -38,7 +38,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.neo4j.driver.AccessMode.READ;
-import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.ABSENT_DB_NAME;
+import static org.neo4j.driver.internal.DatabaseNameUtil.defaultDatabase;
 
 class DecoratedConnectionTest
 {
@@ -210,7 +210,7 @@ class DecoratedConnectionTest
     @EnumSource( AccessMode.class )
     void shouldReturnModeFromConstructor( AccessMode mode )
     {
-        DirectConnection connection = new DirectConnection( mock( Connection.class ), ABSENT_DB_NAME, mode );
+        DirectConnection connection = new DirectConnection( mock( Connection.class ), defaultDatabase(), mode );
 
         assertEquals( mode, connection.mode() );
     }
@@ -226,6 +226,6 @@ class DecoratedConnectionTest
     
     private static DirectConnection newConnection( Connection connection )
     {
-        return new DirectConnection( connection, ABSENT_DB_NAME, READ );
+        return new DirectConnection( connection, defaultDatabase(), READ );
     }
 }

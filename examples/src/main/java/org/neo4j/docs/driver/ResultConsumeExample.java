@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -23,10 +23,8 @@ package org.neo4j.docs.driver;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
-import org.neo4j.driver.Transaction;
-import org.neo4j.driver.TransactionWork;
 // end::result-consume-import[]
 
 public class ResultConsumeExample extends BaseApplication
@@ -41,27 +39,16 @@ public class ResultConsumeExample extends BaseApplication
     {
         try ( Session session = driver.session() )
         {
-            return session.readTransaction( new TransactionWork<List<String>>()
-            {
-                @Override
-                public List<String> execute( Transaction tx )
+            return session.readTransaction( tx -> {
+                List<String> names = new ArrayList<>();
+                Result result = tx.run( "MATCH (a:Person) RETURN a.name ORDER BY a.name" );
+                while ( result.hasNext() )
                 {
-                    return matchPersonNodes( tx );
+                    names.add( result.next().get( 0 ).asString() );
                 }
+                return names;
             } );
         }
     }
-
-    private static List<String> matchPersonNodes( Transaction tx )
-    {
-        List<String> names = new ArrayList<>();
-        StatementResult result = tx.run( "MATCH (a:Person) RETURN a.name ORDER BY a.name" );
-        while ( result.hasNext() )
-        {
-            names.add( result.next().get( 0 ).asString() );
-        }
-        return names;
-    }
     // end::result-consume[]
-
 }

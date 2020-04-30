@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -35,7 +35,7 @@ import org.neo4j.driver.Session;
 import org.neo4j.driver.exceptions.FatalDiscoveryException;
 import org.neo4j.driver.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.integration.RoutingDriverBoltKitTest.PortBasedServerAddressComparator;
-import org.neo4j.driver.internal.Bookmark;
+import org.neo4j.driver.Bookmark;
 import org.neo4j.driver.net.ServerAddress;
 import org.neo4j.driver.net.ServerAddressResolver;
 import org.neo4j.driver.util.StubServer;
@@ -62,7 +62,7 @@ class RoutingDriverMultidatabaseBoltKitTest
         StubServer reader = StubServer.start( "read_server_v4_read.script", 9005 );
         URI uri = URI.create( "neo4j://127.0.0.1:9001" );
         try ( Driver driver = GraphDatabase.driver( uri, INSECURE_CONFIG );
-                Session session = driver.session( builder().withDefaultAccessMode( AccessMode.READ ).withDatabase( "myDatabase" ).build() ) )
+                Session session = driver.session( builder().withDefaultAccessMode( AccessMode.READ ).withDatabase( "mydatabase" ).build() ) )
         {
             List<String> result = session.run( "MATCH (n) RETURN n.name" ).list( record -> record.get( "n.name" ).asString() );
 
@@ -89,7 +89,7 @@ class RoutingDriverMultidatabaseBoltKitTest
 
         Config config = insecureBuilder().withResolver( resolver ).build();
         try ( Driver driver = GraphDatabase.driver( "neo4j://my.virtual.host:8080", config );
-                Session session = driver.session( builder().withDefaultAccessMode( AccessMode.READ ).withDatabase( "myDatabase" ).build() ) )
+                Session session = driver.session( builder().withDefaultAccessMode( AccessMode.READ ).withDatabase( "mydatabase" ).build() ) )
         {
             List<String> result = session.run( "MATCH (n) RETURN n.name" ).list( record -> record.get( "n.name" ).asString() );
 
@@ -109,7 +109,7 @@ class RoutingDriverMultidatabaseBoltKitTest
 
         URI uri = URI.create( "neo4j://127.0.0.1:9001" );
         try ( Driver driver = GraphDatabase.driver( uri, INSECURE_CONFIG );
-                Session session = driver.session( builder().withDefaultAccessMode( AccessMode.READ ).withDatabase( "myDatabase" ).build() ) )
+                Session session = driver.session( builder().withDefaultAccessMode( AccessMode.READ ).withDatabase( "mydatabase" ).build() ) )
         {
             final FatalDiscoveryException error = assertThrows( FatalDiscoveryException.class, () -> {
                 session.run( "MATCH (n) RETURN n.name" );
@@ -132,7 +132,7 @@ class RoutingDriverMultidatabaseBoltKitTest
 
         try ( Driver driver = GraphDatabase.driver( uri, INSECURE_CONFIG ) )
         {
-            try( Session session = driver.session( builder().withDefaultAccessMode( AccessMode.READ ).withDatabase( "Unreachable" ).build() ) )
+            try( Session session = driver.session( builder().withDefaultAccessMode( AccessMode.READ ).withDatabase( "unreachable" ).build() ) )
             {
                 final ServiceUnavailableException error = assertThrows( ServiceUnavailableException.class, () -> {
                     session.run( "MATCH (n) RETURN n.name" );
@@ -141,7 +141,7 @@ class RoutingDriverMultidatabaseBoltKitTest
                 assertThat( error.getMessage(), containsString( "Could not perform discovery for database 'unreachable'" ) );
             }
 
-            try ( Session session = driver.session( builder().withDefaultAccessMode( AccessMode.READ ).withDatabase( "myDatabase" ).build() ) )
+            try ( Session session = driver.session( builder().withDefaultAccessMode( AccessMode.READ ).withDatabase( "mydatabase" ).build() ) )
             {
                 List<String> result = session.run( "MATCH (n) RETURN n.name" ).list( record -> record.get( "n.name" ).asString() );
 
@@ -155,7 +155,7 @@ class RoutingDriverMultidatabaseBoltKitTest
 
 
     @Test
-    void shouldVerifyConnectivityOnDriverCreation() throws Throwable
+    void shouldDriverVerifyConnectivity() throws Throwable
     {
         StubServer router = StubServer.start( "acquire_endpoints_v4_verify_connectivity.script", 9001 );
         StubServer readServer = StubServer.start( "read_server_v4_read.script", 9005 );
@@ -164,7 +164,7 @@ class RoutingDriverMultidatabaseBoltKitTest
         try ( Driver driver = GraphDatabase.driver( uri, INSECURE_CONFIG ) )
         {
             driver.verifyConnectivity();
-            try ( Session session = driver.session( builder().withDatabase( "myDatabase" ).withDefaultAccessMode( AccessMode.READ ).build() ) )
+            try ( Session session = driver.session( builder().withDatabase( "mydatabase" ).withDefaultAccessMode( AccessMode.READ ).build() ) )
             {
                 List<Record> records = session.run( "MATCH (n) RETURN n.name" ).list();
                 assertEquals( 3, records.size() );

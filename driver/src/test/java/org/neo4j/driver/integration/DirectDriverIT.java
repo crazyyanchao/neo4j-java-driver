@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -25,10 +25,11 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 
 import java.net.URI;
 
+import org.neo4j.driver.Config;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
 import org.neo4j.driver.internal.BoltServerAddress;
 import org.neo4j.driver.util.DatabaseExtension;
 import org.neo4j.driver.util.ParallelizableIT;
@@ -37,6 +38,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.core.IsEqual.equalTo;
 import static org.hamcrest.junit.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.neo4j.driver.Values.parameters;
 import static org.neo4j.driver.internal.util.Matchers.directDriverWithAddress;
 
 @ParallelizableIT
@@ -78,7 +80,7 @@ class DirectDriverIT
 
         // When & Then
         IllegalArgumentException e = assertThrows( IllegalArgumentException.class, () -> GraphDatabase.driver( uri, neo4j.authToken() ) );
-        assertThat( e.getMessage(), equalTo( "Invalid address format `*`" ) );
+        assertThat( e.getMessage(), equalTo( "Scheme must not be null" ) );
     }
 
     @Test
@@ -103,7 +105,7 @@ class DirectDriverIT
               Session session = driver.session() )
         {
             // When
-            StatementResult result = session.run( "RETURN 1" );
+            Result result = session.run( "RETURN 1" );
 
             // Then
             assertThat( result.single().get( 0 ).asInt(), CoreMatchers.equalTo( 1 ) );

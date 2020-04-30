@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -28,7 +28,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.neo4j.driver.AccessMode;
-import org.neo4j.driver.Statement;
+import org.neo4j.driver.Bookmark;
+import org.neo4j.driver.Query;
 import org.neo4j.driver.Value;
 import org.neo4j.driver.internal.InternalBookmark;
 import org.neo4j.driver.internal.messaging.ValuePacker;
@@ -40,8 +41,8 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.neo4j.driver.AccessMode.READ;
 import static org.neo4j.driver.Values.value;
+import static org.neo4j.driver.internal.DatabaseNameUtil.defaultDatabase;
 import static org.neo4j.driver.internal.messaging.request.DiscardAllMessage.DISCARD_ALL;
-import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.ABSENT_DB_NAME;
 import static org.neo4j.driver.internal.messaging.request.RunWithMetadataMessage.autoCommitTxRunMessage;
 
 class RunWithMetadataMessageEncoderTest
@@ -55,7 +56,7 @@ class RunWithMetadataMessageEncoderTest
     {
         Map<String,Value> params = singletonMap( "answer", value( 42 ) );
 
-        InternalBookmark bookmark = InternalBookmark.parse( "neo4j:bookmark:v1:tx999" );
+        Bookmark bookmark = InternalBookmark.parse( "neo4j:bookmark:v1:tx999" );
 
         Map<String,Value> txMetadata = new HashMap<>();
         txMetadata.put( "key1", value( "value1" ) );
@@ -64,8 +65,8 @@ class RunWithMetadataMessageEncoderTest
 
         Duration txTimeout = Duration.ofMillis( 42 );
 
-        Statement statement = new Statement( "RETURN $answer", value( params ) );
-        encoder.encode( autoCommitTxRunMessage( statement, txTimeout, txMetadata, ABSENT_DB_NAME, mode, bookmark ), packer );
+        Query query = new Query( "RETURN $answer", value( params ) );
+        encoder.encode( autoCommitTxRunMessage(query, txTimeout, txMetadata, defaultDatabase(), mode, bookmark ), packer );
 
         InOrder order = inOrder( packer );
         order.verify( packer ).packStructHeader( 3, RunWithMetadataMessage.SIGNATURE );

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -49,7 +49,7 @@ public final class EventLoopGroupFactory
      * Get class of {@link Channel} for {@link Bootstrap#channel(Class)} method.
      *
      * @return class of the channel, which should be consistent with {@link EventLoopGroup}s returned by
-     * {@link #newEventLoopGroup()} and {@link #newEventLoopGroup(int)}.
+     * {@link #newEventLoopGroup(int)}.
      */
     public static Class<? extends Channel> channelClass()
     {
@@ -66,17 +66,6 @@ public final class EventLoopGroupFactory
     public static EventLoopGroup newEventLoopGroup( int threadCount )
     {
         return new DriverEventLoopGroup( threadCount );
-    }
-
-    /**
-     * Create new {@link EventLoopGroup} with default thread count. Returned group should by given to
-     * {@link Bootstrap#group(EventLoopGroup)}.
-     *
-     * @return new group consistent with channel class returned by {@link #channelClass()}.
-     */
-    public static EventLoopGroup newEventLoopGroup()
-    {
-        return new DriverEventLoopGroup();
     }
 
     /**

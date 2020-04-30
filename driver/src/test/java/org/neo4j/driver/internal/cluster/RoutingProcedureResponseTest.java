@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.neo4j.driver.internal.InternalRecord;
 import org.neo4j.driver.internal.value.StringValue;
 import org.neo4j.driver.Record;
-import org.neo4j.driver.Statement;
+import org.neo4j.driver.Query;
 import org.neo4j.driver.Value;
 
 import static java.util.Arrays.asList;
@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RoutingProcedureResponseTest
 {
-    private static final Statement PROCEDURE = new Statement( "procedure" );
+    private static final Query PROCEDURE = new Query( "procedure" );
 
     private static final Record RECORD_1 = new InternalRecord( asList( "a", "b" ),
             new Value[]{new StringValue( "a" ), new StringValue( "b" )} );

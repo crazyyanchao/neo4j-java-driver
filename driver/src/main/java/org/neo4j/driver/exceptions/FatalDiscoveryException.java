@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -21,7 +21,7 @@ package org.neo4j.driver.exceptions;
 /**
  * This error indicate a fatal problem to obtain routing tables such as the routing table for a specified database does not exist.
  * This exception should not be retried.
- * @since 2.0
+ * @since 4.0
  */
 public class FatalDiscoveryException extends ClientException
 {

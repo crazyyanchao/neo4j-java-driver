@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -24,13 +24,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
+import java.util.Collections;
+import java.util.concurrent.CompletionStage;
+
 import org.neo4j.driver.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.internal.BoltServerAddress;
 import org.neo4j.driver.internal.ConnectionSettings;
 import org.neo4j.driver.internal.async.connection.BootstrapFactory;
 import org.neo4j.driver.internal.async.connection.ChannelConnector;
 import org.neo4j.driver.internal.async.connection.ChannelConnectorImpl;
-import org.neo4j.driver.internal.security.SecurityPlan;
+import org.neo4j.driver.internal.security.SecurityPlanImpl;
 import org.neo4j.driver.internal.spi.Connection;
 import org.neo4j.driver.internal.util.FakeClock;
 import org.neo4j.driver.util.DatabaseExtension;
@@ -87,6 +90,18 @@ class ConnectionPoolImplIT
     }
 
     @Test
+    void shouldBeAbleToClosePoolInIOWorkerThread() throws Throwable
+    {
+        // In the IO worker thread of a channel obtained from a pool, we shall be able to close the pool.
+        CompletionStage<Void> future = pool.acquire( neo4j.address() ).thenCompose( Connection::release )
+                // This shall close all pools
+                .whenComplete( ( ignored, error ) -> pool.retainAll( Collections.emptySet() ) );
+
+        // We should be able to come to this line.
+        await( future );
+    }
+
+    @Test
     void shouldFailToAcquireConnectionToWrongAddress()
     {
         ServiceUnavailableException e = assertThrows( ServiceUnavailableException.class,
@@ -118,19 +133,19 @@ class ConnectionPoolImplIT
     {
         await( pool.acquire( neo4j.address() ) );
         ExtendedChannelPool channelPool = this.pool.getPool( neo4j.address() );
-        channelPool.close();
+        await( channelPool.close() );
         ServiceUnavailableException error =
                 assertThrows( ServiceUnavailableException.class, () -> await( pool.acquire( neo4j.address() ) ) );
         assertThat( error.getMessage(), containsString( "closed while acquiring a connection" ) );
         assertThat( error.getCause(), instanceOf( IllegalStateException.class ) );
-        assertThat( error.getCause().getMessage(), containsString( "FixedChannelPooled was closed" ) );
+        assertThat( error.getCause().getMessage(), containsString( "FixedChannelPool was closed" ) );
     }
 
     private ConnectionPoolImpl newPool() throws Exception
     {
         FakeClock clock = new FakeClock();
         ConnectionSettings connectionSettings = new ConnectionSettings( neo4j.authToken(), 5000 );
-        ChannelConnector connector = new ChannelConnectorImpl( connectionSettings, SecurityPlan.insecure(),
+        ChannelConnector connector = new ChannelConnectorImpl( connectionSettings, SecurityPlanImpl.insecure(),
                 DEV_NULL_LOGGING, clock );
         PoolSettings poolSettings = newSettings();
         Bootstrap bootstrap = BootstrapFactory.newBootstrap( 1 );

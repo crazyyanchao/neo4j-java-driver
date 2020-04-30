@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,12 +18,12 @@
  */
 package org.neo4j.driver.internal.util;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-import org.neo4j.driver.Statement;
+import org.neo4j.driver.Bookmark;
+import org.neo4j.driver.Query;
 import org.neo4j.driver.Value;
 import org.neo4j.driver.exceptions.UntrustedServerException;
 import org.neo4j.driver.internal.InternalBookmark;
@@ -39,11 +39,10 @@ import org.neo4j.driver.summary.DatabaseInfo;
 import org.neo4j.driver.summary.Notification;
 import org.neo4j.driver.summary.Plan;
 import org.neo4j.driver.summary.ProfiledPlan;
+import org.neo4j.driver.summary.QueryType;
 import org.neo4j.driver.summary.ResultSummary;
 import org.neo4j.driver.summary.ServerInfo;
-import org.neo4j.driver.summary.StatementType;
 
-import static java.util.Collections.emptyList;
 import static org.neo4j.driver.internal.summary.InternalDatabaseInfo.DEFAULT_DATABASE_INFO;
 import static org.neo4j.driver.internal.types.InternalTypeSystem.TYPE_SYSTEM;
 
@@ -59,14 +58,14 @@ public class MetadataExtractor
         this.resultConsumedAfterMetadataKey = resultConsumedAfterMetadataKey;
     }
 
-    public List<String> extractStatementKeys( Map<String,Value> metadata )
+    public QueryKeys extractQueryKeys( Map<String,Value> metadata )
     {
         Value keysValue = metadata.get( "fields" );
         if ( keysValue != null )
         {
             if ( !keysValue.isEmpty() )
             {
-                List<String> keys = new ArrayList<>( keysValue.size() );
+                QueryKeys keys = new QueryKeys( keysValue.size() );
                 for ( Value value : keysValue.values() )
                 {
                     keys.add( value.asString() );
@@ -75,15 +74,15 @@ public class MetadataExtractor
                 return keys;
             }
         }
-        return emptyList();
+        return QueryKeys.empty();
     }
 
     public long extractQueryId( Map<String,Value> metadata )
     {
-        Value statementId = metadata.get( "qid" );
-        if ( statementId != null )
+        Value queryId = metadata.get( "qid" );
+        if ( queryId != null )
         {
-            return statementId.asLong();
+            return queryId.asLong();
         }
         return ABSENT_QUERY_ID;
     }
@@ -99,11 +98,11 @@ public class MetadataExtractor
         return -1;
     }
 
-    public ResultSummary extractSummary( Statement statement, Connection connection, long resultAvailableAfter, Map<String,Value> metadata )
+    public ResultSummary extractSummary(Query query, Connection connection, long resultAvailableAfter, Map<String,Value> metadata )
     {
         ServerInfo serverInfo = new InternalServerInfo( connection.serverAddress(), connection.serverVersion() );
         DatabaseInfo dbInfo = extractDatabaseInfo( metadata );
-        return new InternalResultSummary( statement, serverInfo, dbInfo, extractStatementType( metadata ), extractCounters( metadata ), extractPlan( metadata ),
+        return new InternalResultSummary(query, serverInfo, dbInfo, extractQueryType( metadata ), extractCounters( metadata ), extractPlan( metadata ),
                 extractProfiledPlan( metadata ), extractNotifications( metadata ), resultAvailableAfter,
                 extractResultConsumedAfter( metadata, resultConsumedAfterMetadataKey ) );
     }
@@ -121,7 +120,7 @@ public class MetadataExtractor
         }
     }
 
-    public static InternalBookmark extractBookmarks( Map<String,Value> metadata )
+    public static Bookmark extractBookmarks( Map<String,Value> metadata )
     {
         Value bookmarkValue = metadata.get( "bookmark" );
         if ( bookmarkValue != null && !bookmarkValue.isNull() && bookmarkValue.hasType( TYPE_SYSTEM.STRING() ) )
@@ -152,12 +151,12 @@ public class MetadataExtractor
         }
     }
 
-    private static StatementType extractStatementType( Map<String,Value> metadata )
+    private static QueryType extractQueryType(Map<String,Value> metadata )
     {
         Value typeValue = metadata.get( "type" );
         if ( typeValue != null )
         {
-            return StatementType.fromCode( typeValue.asString() );
+            return QueryType.fromCode( typeValue.asString() );
         }
         return null;
     }
@@ -178,7 +177,8 @@ public class MetadataExtractor
                     counterValue( countersValue, "indexes-added" ),
                     counterValue( countersValue, "indexes-removed" ),
                     counterValue( countersValue, "constraints-added" ),
-                    counterValue( countersValue, "constraints-removed" )
+                    counterValue( countersValue, "constraints-removed" ),
+                    counterValue( countersValue, "system-updates" )
             );
         }
         return null;

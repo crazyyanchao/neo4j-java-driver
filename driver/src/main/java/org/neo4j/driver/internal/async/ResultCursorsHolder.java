@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -19,6 +19,7 @@
 package org.neo4j.driver.internal.async;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -30,7 +31,7 @@ import static org.neo4j.driver.internal.util.Futures.completedWithNull;
 
 public class ResultCursorsHolder
 {
-    private final List<CompletionStage<? extends FailableCursor>> cursorStages = new ArrayList<>();
+    private final List<CompletionStage<? extends FailableCursor>> cursorStages = Collections.synchronizedList( new ArrayList<>() );
 
     public void add( CompletionStage<? extends FailableCursor> cursorStage )
     {
@@ -74,6 +75,6 @@ public class ResultCursorsHolder
     {
         return cursorStage
                 .exceptionally( cursor -> null )
-                .thenCompose( cursor -> cursor == null ? completedWithNull() : cursor.failureAsync() );
+                .thenCompose( cursor -> cursor == null ? completedWithNull() : cursor.discardAllFailureAsync() );
     }
 }

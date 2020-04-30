@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,20 +18,20 @@
  */
 package org.neo4j.driver;
 
-import java.util.Map;
+import java.util.Collection;
 
+import org.neo4j.driver.util.Experimental;
+
+/**
+ * Provides driver internal metrics.
+ */
+@Experimental
 public interface Metrics
 {
     /**
-     * A map of connection pool metrics.
-     * The {@link ConnectionPoolMetrics#id()} are used as the keys of the map.
-     * @return The connection pool metrics.
+     * Connection pool metrics records metrics of connection pools that are currently in use.
+     * As the connection pools are dynamically added and removed while the server topology changes, the metrics collection changes over time.
+     * @return Connection pool metrics for all current active pools.
      */
-    Map<String, ConnectionPoolMetrics> connectionPoolMetrics();
-
-    /**
-     * Returns a snapshot of this metrics.
-     * @return a snapshot of this metrics.
-     */
-    Metrics snapshot();
+    Collection<ConnectionPoolMetrics> connectionPoolMetrics();
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -19,15 +19,17 @@
 package org.neo4j.docs.driver;
 
 import io.reactivex.Flowable;
+// tag::rx-transaction-function-import[]
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.Collections;
 import java.util.Map;
 
-import org.neo4j.driver.reactive.RxStatementResult;
+import org.neo4j.driver.reactive.RxResult;
 import org.neo4j.driver.reactive.RxSession;
 import org.neo4j.driver.summary.ResultSummary;
+// end::rx-transaction-function-import[]
 
 public class RxTransactionFunctionExample extends BaseApplication
 {
@@ -36,35 +38,37 @@ public class RxTransactionFunctionExample extends BaseApplication
         super( uri, user, password );
     }
 
-    public Flux<ResultSummary> printAllProductsReactor()
+    // tag::rx-transaction-function[]
+    public Flux<ResultSummary> printAllProducts()
     {
-        // tag::reactor-transaction-function[]
         String query = "MATCH (p:Product) WHERE p.id = $id RETURN p.title";
         Map<String,Object> parameters = Collections.singletonMap( "id", 0 );
 
-
-        return Flux.using( driver::rxSession, session -> session.readTransaction( tx -> {
-                    RxStatementResult result = tx.run( query, parameters );
+        return Flux.usingWhen( Mono.fromSupplier( driver::rxSession ),
+                session -> session.readTransaction( tx -> {
+                    RxResult result = tx.run( query, parameters );
                     return Flux.from( result.records() )
-                            .doOnNext( record -> System.out.println( record.get( 0 ).asString() ) ).then( Mono.from( result.summary() ) );
+                            .doOnNext( record -> System.out.println( record.get( 0 ).asString() ) ).then( Mono.from( result.consume() ) );
                 }
              ), RxSession::close );
-        // end::reactor-transaction-function[]
     }
+    // end::rx-transaction-function[]
 
+    // tag::RxJava-transaction-function[]
     public Flowable<ResultSummary> printAllProductsRxJava()
     {
-        // tag::RxJava-transaction-function[]
         String query = "MATCH (p:Product) WHERE p.id = $id RETURN p.title";
         Map<String,Object> parameters = Collections.singletonMap( "id", 0 );
 
-
-        return Flowable.using( driver::rxSession, session -> session.readTransaction( tx -> {
-                    RxStatementResult result = tx.run( query, parameters );
+        RxSession session = driver.rxSession();
+        return Flowable.fromPublisher( session.readTransaction( tx -> {
+                    RxResult result = tx.run( query, parameters );
                     return Flowable.fromPublisher( result.records() )
-                            .doOnNext( record -> System.out.println( record.get( 0 ).asString() ) ).ignoreElements().andThen( result.summary() );
-                }
-        ), RxSession::close );
-        // end::RxJava-transaction-function[]
+                            .doOnNext( record -> System.out.println( record.get( 0 ).asString() ) ).ignoreElements().andThen( result.consume() );
+                } ) ).onErrorResumeNext( error -> {
+                    // We rollback and rethrow the error. For a real application, you may want to handle the error directly here
+                    return Flowable.<ResultSummary>fromPublisher( session.close() ).concatWith( Flowable.error( error ) );
+                } );
     }
+    // end::RxJava-transaction-function[]
 }

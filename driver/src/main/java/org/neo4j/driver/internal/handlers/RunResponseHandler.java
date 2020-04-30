@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,23 +18,21 @@
  */
 package org.neo4j.driver.internal.handlers;
 
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
+import org.neo4j.driver.Value;
 import org.neo4j.driver.internal.spi.ResponseHandler;
 import org.neo4j.driver.internal.util.MetadataExtractor;
-import org.neo4j.driver.Value;
-
-import static java.util.Collections.emptyList;
+import org.neo4j.driver.internal.util.QueryKeys;
 
 public class RunResponseHandler implements ResponseHandler
 {
     private final CompletableFuture<Throwable> runCompletedFuture;
     private final MetadataExtractor metadataExtractor;
-    private long statementId = MetadataExtractor.ABSENT_QUERY_ID;
+    private long queryId = MetadataExtractor.ABSENT_QUERY_ID;
 
-    private List<String> statementKeys = emptyList();
+    private QueryKeys queryKeys = QueryKeys.empty();
     private long resultAvailableAfter = -1;
 
     public RunResponseHandler( MetadataExtractor metadataExtractor )
@@ -51,9 +49,9 @@ public class RunResponseHandler implements ResponseHandler
     @Override
     public void onSuccess( Map<String,Value> metadata )
     {
-        statementKeys = metadataExtractor.extractStatementKeys( metadata );
+        queryKeys = metadataExtractor.extractQueryKeys( metadata );
         resultAvailableAfter = metadataExtractor.extractResultAvailableAfter( metadata );
-        statementId = metadataExtractor.extractQueryId( metadata );
+        queryId = metadataExtractor.extractQueryId( metadata );
 
         completeRunFuture( null );
     }
@@ -70,9 +68,9 @@ public class RunResponseHandler implements ResponseHandler
         throw new UnsupportedOperationException();
     }
 
-    public List<String> statementKeys()
+    public QueryKeys queryKeys()
     {
-        return statementKeys;
+        return queryKeys;
     }
 
     public long resultAvailableAfter()
@@ -80,15 +78,15 @@ public class RunResponseHandler implements ResponseHandler
         return resultAvailableAfter;
     }
 
-    public long statementId()
+    public long queryId()
     {
-        return statementId;
+        return queryId;
     }
 
     /**
      * Complete the given future with error if the future was failed.
      * Future is never completed exceptionally.
-     * Async API needs to wait for RUN because it needs to access statement keys.
+     * Async API needs to wait for RUN because it needs to access query keys.
      * Reactive API needs to know if RUN failed by checking the error.
      */
     private void completeRunFuture( Throwable error )

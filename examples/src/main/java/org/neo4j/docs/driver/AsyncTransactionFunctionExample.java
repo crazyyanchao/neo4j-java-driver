@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -17,14 +17,14 @@
  * limitations under the License.
  */
 package org.neo4j.docs.driver;
-
+// tag::async-transaction-function-import[]
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
 
 import org.neo4j.driver.async.AsyncSession;
 import org.neo4j.driver.summary.ResultSummary;
-
+// end::async-transaction-function-import[]
 public class AsyncTransactionFunctionExample extends BaseApplication
 {
     public AsyncTransactionFunctionExample( String uri, String user, String password )
@@ -32,9 +32,9 @@ public class AsyncTransactionFunctionExample extends BaseApplication
         super( uri, user, password );
     }
 
+    // tag::async-transaction-function[]
     public CompletionStage<ResultSummary> printAllProducts()
     {
-        // tag::async-transaction-function[]
         String query = "MATCH (p:Product) WHERE p.id = $id RETURN p.title";
         Map<String,Object> parameters = Collections.singletonMap( "id", 0 );
 
@@ -46,6 +46,6 @@ public class AsyncTransactionFunctionExample extends BaseApplication
                                 // asynchronously print every record
                                 System.out.println( record.get( 0 ).asString() ) ) )
         );
-        // end::async-transaction-function[]
     }
+    // end::async-transaction-function[]
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -36,6 +36,31 @@ public interface ProfiledPlan extends Plan
      * @return the number of records this part of the plan produced
      */
     long records();
+
+    /**
+     * @return if the number page cache hits and misses and the ratio was recorded.
+     */
+    boolean hasPageCacheStats();
+
+    /**
+     * @return number of page cache hits caused by executing the associated execution step
+     */
+    long pageCacheHits();
+
+    /**
+     * @return number of page cache misses caused by executing the associated execution step
+     */
+    long pageCacheMisses();
+
+    /**
+     * @return the ratio of page cache hits to total number of lookups or 0 if no data is available
+     */
+    double pageCacheHitRatio();
+
+    /**
+     * @return amount of time spent in the associated execution step.
+     */
+    long time();
 
     @Override
     List<ProfiledPlan> children();

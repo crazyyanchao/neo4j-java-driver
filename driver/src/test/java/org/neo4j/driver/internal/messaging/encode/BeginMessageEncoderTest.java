@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -27,19 +27,20 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.neo4j.driver.AccessMode;
+import org.neo4j.driver.Bookmark;
+import org.neo4j.driver.Value;
 import org.neo4j.driver.internal.InternalBookmark;
 import org.neo4j.driver.internal.messaging.ValuePacker;
 import org.neo4j.driver.internal.messaging.request.BeginMessage;
-import org.neo4j.driver.AccessMode;
-import org.neo4j.driver.Value;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
-import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.ABSENT_DB_NAME;
-import static org.neo4j.driver.internal.messaging.request.ResetMessage.RESET;
-import static org.neo4j.driver.AccessMode.*;
+import static org.neo4j.driver.AccessMode.READ;
 import static org.neo4j.driver.Values.value;
+import static org.neo4j.driver.internal.DatabaseNameUtil.defaultDatabase;
+import static org.neo4j.driver.internal.messaging.request.ResetMessage.RESET;
 
 class BeginMessageEncoderTest
 {
@@ -50,7 +51,7 @@ class BeginMessageEncoderTest
     @EnumSource( AccessMode.class )
     void shouldEncodeBeginMessage( AccessMode mode ) throws Exception
     {
-        InternalBookmark bookmark = InternalBookmark.parse( "neo4j:bookmark:v1:tx42" );
+        Bookmark bookmark = InternalBookmark.parse( "neo4j:bookmark:v1:tx42" );
 
         Map<String,Value> txMetadata = new HashMap<>();
         txMetadata.put( "hello", value( "world" ) );
@@ -58,7 +59,7 @@ class BeginMessageEncoderTest
 
         Duration txTimeout = Duration.ofSeconds( 1 );
 
-        encoder.encode( new BeginMessage( bookmark, txTimeout, txMetadata, mode, ABSENT_DB_NAME ), packer );
+        encoder.encode( new BeginMessage( bookmark, txTimeout, txMetadata, mode, defaultDatabase() ), packer );
 
         InOrder order = inOrder( packer );
         order.verify( packer ).packStructHeader( 1, BeginMessage.SIGNATURE );

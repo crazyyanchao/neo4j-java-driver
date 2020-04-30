@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -24,7 +24,7 @@ import org.neo4j.driver.AccessMode;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Transaction;
 import org.neo4j.driver.types.Node;
 
@@ -44,7 +44,7 @@ public class BlockingReadQueryInTx<C extends AbstractContext> extends AbstractBl
         try ( Session session = newSession( AccessMode.READ, context );
               Transaction tx = beginTransaction( session, context ) )
         {
-            StatementResult result = tx.run( "MATCH (n) RETURN n LIMIT 1" );
+            Result result = tx.run( "MATCH (n) RETURN n LIMIT 1" );
             List<Record> records = result.list();
             if ( !records.isEmpty() )
             {
@@ -53,8 +53,8 @@ public class BlockingReadQueryInTx<C extends AbstractContext> extends AbstractBl
                 assertNotNull( node );
             }
 
-            context.readCompleted( result.summary() );
-            tx.success();
+            context.readCompleted( result.consume() );
+            tx.commit();
         }
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -23,19 +23,20 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.neo4j.driver.AccessMode;
+import org.neo4j.driver.Bookmark;
 import org.neo4j.driver.Logger;
 import org.neo4j.driver.Logging;
-import org.neo4j.driver.Statement;
+import org.neo4j.driver.Query;
 import org.neo4j.driver.TransactionConfig;
-import org.neo4j.driver.async.StatementResultCursor;
+import org.neo4j.driver.async.ResultCursor;
 import org.neo4j.driver.exceptions.ClientException;
-import org.neo4j.driver.internal.Bookmark;
+import org.neo4j.driver.exceptions.TransactionNestingException;
 import org.neo4j.driver.internal.BookmarkHolder;
+import org.neo4j.driver.internal.DatabaseName;
 import org.neo4j.driver.internal.FailableCursor;
-import org.neo4j.driver.internal.InternalBookmark;
-import org.neo4j.driver.internal.cursor.InternalStatementResultCursor;
-import org.neo4j.driver.internal.cursor.RxStatementResultCursor;
-import org.neo4j.driver.internal.cursor.StatementResultCursorFactory;
+import org.neo4j.driver.internal.cursor.AsyncResultCursor;
+import org.neo4j.driver.internal.cursor.RxResultCursor;
+import org.neo4j.driver.internal.cursor.ResultCursorFactory;
 import org.neo4j.driver.internal.logging.PrefixedLogger;
 import org.neo4j.driver.internal.retry.RetryLogic;
 import org.neo4j.driver.internal.spi.Connection;
@@ -56,14 +57,15 @@ public class NetworkSession
     protected final Logger logger;
 
     private final BookmarkHolder bookmarkHolder;
-    private volatile CompletionStage<ExplicitTransaction> transactionStage = completedWithNull();
+    private final long fetchSize;
+    private volatile CompletionStage<UnmanagedTransaction> transactionStage = completedWithNull();
     private volatile CompletionStage<Connection> connectionStage = completedWithNull();
     private volatile CompletionStage<? extends FailableCursor> resultCursorStage = completedWithNull();
 
     private final AtomicBoolean open = new AtomicBoolean( true );
 
-    public NetworkSession( ConnectionProvider connectionProvider, RetryLogic retryLogic, String databaseName, AccessMode mode,
-            BookmarkHolder bookmarkHolder, Logging logging )
+    public NetworkSession( ConnectionProvider connectionProvider, RetryLogic retryLogic, DatabaseName databaseName, AccessMode mode,
+            BookmarkHolder bookmarkHolder, long fetchSize, Logging logging )
     {
         this.connectionProvider = connectionProvider;
         this.mode = mode;
@@ -71,46 +73,47 @@ public class NetworkSession
         this.logger = new PrefixedLogger( "[" + hashCode() + "]", logging.getLog( LOG_NAME ) );
         this.bookmarkHolder = bookmarkHolder;
         this.connectionContext = new NetworkSessionConnectionContext( databaseName, bookmarkHolder.getBookmark() );
+        this.fetchSize = fetchSize;
     }
 
-    public CompletionStage<StatementResultCursor> runAsync( Statement statement, TransactionConfig config, boolean waitForRunResponse )
+    public CompletionStage<ResultCursor> runAsync(Query query, TransactionConfig config, boolean waitForRunResponse )
     {
-        CompletionStage<InternalStatementResultCursor> newResultCursorStage =
-                buildResultCursorFactory( statement, config, waitForRunResponse ).thenCompose( StatementResultCursorFactory::asyncResult );
+        CompletionStage<AsyncResultCursor> newResultCursorStage =
+                buildResultCursorFactory(query, config, waitForRunResponse ).thenCompose( ResultCursorFactory::asyncResult );
 
         resultCursorStage = newResultCursorStage.exceptionally( error -> null );
         return newResultCursorStage.thenApply( cursor -> cursor ); // convert the return type
     }
 
-    public CompletionStage<RxStatementResultCursor> runRx( Statement statement, TransactionConfig config )
+    public CompletionStage<RxResultCursor> runRx(Query query, TransactionConfig config )
     {
-        CompletionStage<RxStatementResultCursor> newResultCursorStage =
-                buildResultCursorFactory( statement, config, true ).thenCompose( StatementResultCursorFactory::rxResult );
+        CompletionStage<RxResultCursor> newResultCursorStage =
+                buildResultCursorFactory(query, config, true ).thenCompose( ResultCursorFactory::rxResult );
 
         resultCursorStage = newResultCursorStage.exceptionally( error -> null );
         return newResultCursorStage;
     }
 
-    public CompletionStage<ExplicitTransaction> beginTransactionAsync( TransactionConfig config )
+    public CompletionStage<UnmanagedTransaction> beginTransactionAsync( TransactionConfig config )
     {
         return this.beginTransactionAsync( mode, config );
     }
 
-    public CompletionStage<ExplicitTransaction> beginTransactionAsync( AccessMode mode, TransactionConfig config )
+    public CompletionStage<UnmanagedTransaction> beginTransactionAsync( AccessMode mode, TransactionConfig config )
     {
         ensureSessionIsOpen();
 
         // create a chain that acquires connection and starts a transaction
-        CompletionStage<ExplicitTransaction> newTransactionStage = ensureNoOpenTxBeforeStartingTx()
+        CompletionStage<UnmanagedTransaction> newTransactionStage = ensureNoOpenTxBeforeStartingTx()
                 .thenCompose( ignore -> acquireConnection( mode ) )
                 .thenCompose( connection ->
                 {
-                    ExplicitTransaction tx = new ExplicitTransaction( connection, bookmarkHolder );
+                    UnmanagedTransaction tx = new UnmanagedTransaction( connection, bookmarkHolder, fetchSize );
                     return tx.beginAsync( bookmarkHolder.getBookmark(), config );
                 } );
 
         // update the reference to the only known transaction
-        CompletionStage<ExplicitTransaction> currentTransactionStage = transactionStage;
+        CompletionStage<UnmanagedTransaction> currentTransactionStage = transactionStage;
 
         transactionStage = newTransactionStage
                 .exceptionally( error -> null ) // ignore errors from starting new transaction
@@ -193,7 +196,7 @@ public class NetworkSession
                 if ( cursor != null )
                 {
                     // there exists a cursor with potentially unconsumed error, try to extract and propagate it
-                    return cursor.failureAsync();
+                    return cursor.discardAllFailureAsync();
                 }
                 // no result cursor exists so no error exists
                 return completedWithNull();
@@ -220,7 +223,7 @@ public class NetworkSession
                 connection.isOpen() ); // and it's still open
     }
 
-    private CompletionStage<StatementResultCursorFactory> buildResultCursorFactory( Statement statement, TransactionConfig config, boolean waitForRunResponse )
+    private CompletionStage<ResultCursorFactory> buildResultCursorFactory(Query query, TransactionConfig config, boolean waitForRunResponse )
     {
         ensureSessionIsOpen();
 
@@ -229,8 +232,8 @@ public class NetworkSession
                 .thenCompose( connection -> {
                     try
                     {
-                        StatementResultCursorFactory factory = connection.protocol()
-                                .runInAutoCommitTransaction( connection, statement, bookmarkHolder, config, waitForRunResponse );
+                        ResultCursorFactory factory = connection.protocol()
+                                .runInAutoCommitTransaction( connection, query, bookmarkHolder, config, waitForRunResponse, fetchSize );
                         return completedFuture( factory );
                     }
                     catch ( Throwable e )
@@ -251,7 +254,7 @@ public class NetworkSession
                 return completedWithNull();
             }
             // make sure previous result is fully consumed and connection is released back to the pool
-            return cursor.failureAsync();
+            return cursor.pullAllFailureAsync();
         } ).thenCompose( error ->
         {
             if ( error == null )
@@ -304,7 +307,7 @@ public class NetworkSession
 
     private CompletionStage<Void> ensureNoOpenTxBeforeRunningQuery()
     {
-        return ensureNoOpenTx( "Statements cannot be run directly on a session with an open transaction; " +
+        return ensureNoOpenTx( "Queries cannot be run directly on a session with an open transaction; " +
                                "either run from within the transaction or use a different session." );
     }
 
@@ -320,12 +323,12 @@ public class NetworkSession
         {
             if ( tx != null )
             {
-                throw new ClientException( errorMessage );
+                throw new TransactionNestingException( errorMessage );
             }
         } );
     }
 
-    private CompletionStage<ExplicitTransaction> existingTransactionOrNull()
+    private CompletionStage<UnmanagedTransaction> existingTransactionOrNull()
     {
         return transactionStage
                 .exceptionally( error -> null ) // handle previous connection acquisition and tx begin failures
@@ -342,19 +345,19 @@ public class NetworkSession
     }
 
     /**
-     * A {@link Connection} shall fulfil this {@link ImmutableConnectionContext} when acquired from a connection provider.
+     * The {@link NetworkSessionConnectionContext#mode} can be mutable for a session connection context
      */
-    private class NetworkSessionConnectionContext implements ConnectionContext
+    private static class NetworkSessionConnectionContext implements ConnectionContext
     {
-        private final String databaseName;
+        private final DatabaseName databaseName;
         private AccessMode mode;
 
         // This bookmark is only used for rediscovery.
         // It has to be the initial bookmark given at the creation of the session.
         // As only that bookmark could carry extra system bookmarks
-        private final InternalBookmark rediscoveryBookmark;
+        private final Bookmark rediscoveryBookmark;
 
-        private NetworkSessionConnectionContext( String databaseName, InternalBookmark bookmark )
+        private NetworkSessionConnectionContext( DatabaseName databaseName, Bookmark bookmark )
         {
             this.databaseName = databaseName;
             this.rediscoveryBookmark = bookmark;
@@ -367,7 +370,7 @@ public class NetworkSession
         }
 
         @Override
-        public String databaseName()
+        public DatabaseName databaseName()
         {
             return databaseName;
         }
@@ -379,7 +382,7 @@ public class NetworkSession
         }
 
         @Override
-        public InternalBookmark rediscoveryBookmark()
+        public Bookmark rediscoveryBookmark()
         {
             return rediscoveryBookmark;
         }

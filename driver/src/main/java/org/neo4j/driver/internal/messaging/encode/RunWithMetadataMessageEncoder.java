@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -35,7 +35,7 @@ public class RunWithMetadataMessageEncoder implements MessageEncoder
         checkArgument( message, RunWithMetadataMessage.class );
         RunWithMetadataMessage runMessage = (RunWithMetadataMessage) message;
         packer.packStructHeader( 3, runMessage.signature() );
-        packer.pack( runMessage.statement() );
+        packer.pack( runMessage.query() );
         packer.pack( runMessage.parameters() );
         packer.pack( runMessage.metadata() );
     }

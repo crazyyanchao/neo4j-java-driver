@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -100,6 +100,12 @@ public class InternalDriver implements Driver
     }
 
     @Override
+    public boolean isMetricsEnabled()
+    {
+        return metricsProvider.isMetricsEnabled();
+    }
+
+    @Override
     public boolean isEncrypted()
     {
         assertOpen();
@@ -136,6 +142,18 @@ public class InternalDriver implements Driver
     }
 
     @Override
+    public boolean supportsMultiDb()
+    {
+        return Futures.blockingGet( supportsMultiDbAsync() );
+    }
+
+    @Override
+    public CompletionStage<Boolean> supportsMultiDbAsync()
+    {
+        return sessionFactory.supportsMultiDb();
+    }
+
+    @Override
     public void verifyConnectivity()
     {
         Futures.blockingGet( verifyConnectivityAsync() );
@@ -158,10 +176,10 @@ public class InternalDriver implements Driver
         return new IllegalStateException( "This driver instance has already been closed" );
     }
 
-    public NetworkSession newSession( SessionConfig parameters )
+    public NetworkSession newSession( SessionConfig config )
     {
         assertOpen();
-        NetworkSession session = sessionFactory.newInstance( parameters );
+        NetworkSession session = sessionFactory.newInstance( config );
         if ( closed.get() )
         {
             // session does not immediately acquire connection, it is fine to just throw

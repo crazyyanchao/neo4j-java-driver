@@ -13,7 +13,7 @@
   <parent>
     <groupId>org.neo4j.driver</groupId>
     <artifactId>neo4j-java-driver-parent</artifactId>
-    <version>2.0-SNAPSHOT</version>
+    <version>4.0-SNAPSHOT</version>
     <relativePath>..</relativePath>
   </parent>
 
@@ -71,12 +71,12 @@
       <artifactId>bcpkix-jdk15on</artifactId>
     </dependency>
     <dependency>
-      <groupId>com.fasterxml.jackson.core</groupId>
-      <artifactId>jackson-databind</artifactId>
-    </dependency>
-    <dependency>
       <groupId>io.projectreactor</groupId>
       <artifactId>reactor-test</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.oracle.substratevm</groupId>
+      <artifactId>svm</artifactId>
     </dependency>
   </dependencies>
 
@@ -232,6 +232,14 @@
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
               </transformers>
+              <filters>
+                <filter>
+                  <artifact>io.netty:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/native-image/**</exclude>
+                  </excludes>
+                </filter>
+              </filters>
               <shadeTestJar>true</shadeTestJar>
               <createSourcesJar>true</createSourcesJar>
             </configuration>

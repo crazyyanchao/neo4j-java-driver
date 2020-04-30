@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -19,26 +19,27 @@
 package org.neo4j.driver.internal.cluster;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 
 import org.neo4j.driver.AccessMode;
+import org.neo4j.driver.Bookmark;
+import org.neo4j.driver.Query;
 import org.neo4j.driver.Record;
-import org.neo4j.driver.Statement;
 import org.neo4j.driver.TransactionConfig;
-import org.neo4j.driver.async.StatementResultCursor;
+import org.neo4j.driver.async.ResultCursor;
 import org.neo4j.driver.exceptions.ClientException;
 import org.neo4j.driver.exceptions.FatalDiscoveryException;
 import org.neo4j.driver.internal.BookmarkHolder;
-import org.neo4j.driver.internal.InternalBookmark;
+import org.neo4j.driver.internal.DatabaseName;
 import org.neo4j.driver.internal.async.connection.DirectConnection;
 import org.neo4j.driver.internal.spi.Connection;
 import org.neo4j.driver.internal.util.Futures;
 import org.neo4j.driver.internal.util.ServerVersion;
 
 import static org.neo4j.driver.Values.parameters;
-import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.ABSENT_DB_NAME;
+import static org.neo4j.driver.internal.DatabaseNameUtil.defaultDatabase;
+import static org.neo4j.driver.internal.handlers.pulln.FetchSizeUtil.UNLIMITED_FETCH_SIZE;
 
 public class RoutingProcedureRunner
 {
@@ -52,10 +53,10 @@ public class RoutingProcedureRunner
         this.context = context;
     }
 
-    public CompletionStage<RoutingProcedureResponse> run( Connection connection, String databaseName, InternalBookmark bookmark )
+    public CompletionStage<RoutingProcedureResponse> run( Connection connection, DatabaseName databaseName, Bookmark bookmark )
     {
         DirectConnection delegate = connection( connection );
-        Statement procedure = procedureStatement( connection.serverVersion(), databaseName );
+        Query procedure = procedureQuery( connection.serverVersion(), databaseName );
         BookmarkHolder bookmarkHolder = bookmarkHolder( bookmark );
         return runProcedure( delegate, procedure, bookmarkHolder )
                 .thenCompose( records -> releaseConnection( delegate, records ) )
@@ -64,30 +65,30 @@ public class RoutingProcedureRunner
 
     DirectConnection connection( Connection connection )
     {
-        return new DirectConnection( connection, ABSENT_DB_NAME, AccessMode.WRITE );
+        return new DirectConnection( connection, defaultDatabase(), AccessMode.WRITE );
     }
 
-    Statement procedureStatement( ServerVersion serverVersion, String databaseName )
+    Query procedureQuery(ServerVersion serverVersion, DatabaseName databaseName )
     {
-        if ( !Objects.equals( ABSENT_DB_NAME, databaseName ) )
+        if ( databaseName.databaseName().isPresent() )
         {
             throw new FatalDiscoveryException( String.format(
                     "Refreshing routing table for multi-databases is not supported in server version lower than 4.0. " +
-                            "Current server version: %s. Database name: `%s`", serverVersion, databaseName ) );
+                            "Current server version: %s. Database name: '%s'", serverVersion, databaseName.description() ) );
         }
-        return new Statement( GET_ROUTING_TABLE, parameters( ROUTING_CONTEXT, context.asMap() ) );
+        return new Query( GET_ROUTING_TABLE, parameters( ROUTING_CONTEXT, context.asMap() ) );
     }
 
-    BookmarkHolder bookmarkHolder( InternalBookmark ignored )
+    BookmarkHolder bookmarkHolder( Bookmark ignored )
     {
         return BookmarkHolder.NO_OP;
     }
 
-    CompletionStage<List<Record>> runProcedure( Connection connection, Statement procedure, BookmarkHolder bookmarkHolder )
+    CompletionStage<List<Record>> runProcedure(Connection connection, Query procedure, BookmarkHolder bookmarkHolder )
     {
         return connection.protocol()
-                .runInAutoCommitTransaction( connection, procedure, bookmarkHolder, TransactionConfig.empty(), true )
-                .asyncResult().thenCompose( StatementResultCursor::listAsync );
+                .runInAutoCommitTransaction( connection, procedure, bookmarkHolder, TransactionConfig.empty(), true, UNLIMITED_FETCH_SIZE )
+                .asyncResult().thenCompose( ResultCursor::listAsync );
     }
 
     private CompletionStage<List<Record>> releaseConnection( Connection connection, List<Record> records )
@@ -100,8 +101,8 @@ public class RoutingProcedureRunner
         return connection.release().thenApply( ignore -> records );
     }
 
-    private static RoutingProcedureResponse processProcedureResponse( Statement procedure, List<Record> records,
-            Throwable error )
+    private static RoutingProcedureResponse processProcedureResponse(Query procedure, List<Record> records,
+                                                                     Throwable error )
     {
         Throwable cause = Futures.completionExceptionCause( error );
         if ( cause != null )
@@ -114,7 +115,7 @@ public class RoutingProcedureRunner
         }
     }
 
-    private static RoutingProcedureResponse handleError( Statement procedure, Throwable error )
+    private static RoutingProcedureResponse handleError(Query procedure, Throwable error )
     {
         if ( error instanceof ClientException )
         {

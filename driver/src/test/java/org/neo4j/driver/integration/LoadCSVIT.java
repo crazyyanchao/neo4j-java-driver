@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -26,7 +26,7 @@ import java.io.IOException;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.util.DatabaseExtension;
 import org.neo4j.driver.util.Neo4jSettings;
 import org.neo4j.driver.util.ParallelizableIT;
@@ -51,9 +51,9 @@ class LoadCSVIT
             String csvFileUrl = createLocalIrisData( session );
 
             // When
-            StatementResult result = session.run(
+            Result result = session.run(
                     "USING PERIODIC COMMIT 40\n" +
-                    "LOAD CSV WITH HEADERS FROM {csvFileUrl} AS l\n" +
+                    "LOAD CSV WITH HEADERS FROM $csvFileUrl AS l\n" +
                     "MATCH (c:Class {name: l.class_name})\n" +
                     "CREATE (s:Sample {sepal_length: l.sepal_length, sepal_width: l.sepal_width, petal_length: l.petal_length, petal_width: l.petal_width})\n" +
 
@@ -71,7 +71,7 @@ class LoadCSVIT
     {
         for ( String className : IRIS_CLASS_NAMES )
         {
-            session.run( "CREATE (c:Class {name: {className}}) RETURN c", parameters( "className", className ) );
+            session.run( "CREATE (c:Class {name: $className}) RETURN c", parameters( "className", className ) );
         }
 
         return neo4j.putTmpFile( "iris", ".csv", IRIS_DATA ).toExternalForm();

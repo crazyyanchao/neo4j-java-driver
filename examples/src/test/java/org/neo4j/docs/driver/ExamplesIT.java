@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -32,11 +32,14 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import org.neo4j.driver.Driver;
 import org.neo4j.driver.Session;
+import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Value;
+import org.neo4j.driver.Values;
 import org.neo4j.driver.internal.util.EnabledOnNeo4jWith;
+import org.neo4j.driver.summary.QueryType;
 import org.neo4j.driver.summary.ResultSummary;
-import org.neo4j.driver.summary.StatementType;
 import org.neo4j.driver.util.DatabaseExtension;
 import org.neo4j.driver.util.ParallelizableIT;
 import org.neo4j.driver.util.StdIOCapture;
@@ -55,10 +58,14 @@ import static org.hamcrest.junit.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.neo4j.driver.Values.parameters;
+import static org.neo4j.driver.internal.util.Neo4jEdition.ENTERPRISE;
 import static org.neo4j.driver.internal.util.Neo4jFeature.BOLT_V4;
 import static org.neo4j.driver.util.Neo4jRunner.PASSWORD;
 import static org.neo4j.driver.util.Neo4jRunner.USER;
 import static org.neo4j.driver.util.TestUtil.await;
+import static org.neo4j.driver.util.TestUtil.createDatabase;
+import static org.neo4j.driver.util.TestUtil.databaseExists;
+import static org.neo4j.driver.util.TestUtil.dropDatabase;
 
 @ParallelizableIT
 @Execution( ExecutionMode.CONCURRENT )
@@ -69,34 +76,48 @@ class ExamplesIT
 
     private String uri;
 
-    private int readInt( final String statement, final Value parameters )
+    private int readInt( String database, final String query, final Value parameters )
     {
-        try ( Session session = neo4j.driver().session() )
+        SessionConfig sessionConfig;
+        if ( database == null )
         {
-            return session.readTransaction( tx -> tx.run( statement, parameters ).single().get( 0 ).asInt() );
+            sessionConfig = SessionConfig.defaultConfig();
+        }
+        else
+        {
+            sessionConfig = SessionConfig.forDatabase( database );
+        }
+        try ( Session session = neo4j.driver().session( sessionConfig ) )
+        {
+            return session.readTransaction( tx -> tx.run( query, parameters ).single().get( 0 ).asInt() );
         }
     }
 
-    private int readInt( final String statement )
+    private int readInt( final String query, final Value parameters )
     {
-        return readInt( statement, parameters() );
+        return readInt( null, query, parameters );
     }
 
-    private void write( final String statement, final Value parameters )
+    private int readInt( final String query )
+    {
+        return readInt( query, parameters() );
+    }
+
+    private void write( final String query, final Value parameters )
     {
         try ( Session session = neo4j.driver().session() )
         {
             session.writeTransaction( tx ->
             {
-                tx.run( statement, parameters );
+                tx.run( query, parameters );
                 return null;
             } );
         }
     }
 
-    private void write( String statement )
+    private void write( String query )
     {
-        write( statement, parameters() );
+        write( query, parameters() );
     }
 
     private int personCount( String name )
@@ -146,6 +167,22 @@ class ExamplesIT
             // read all 'Product' nodes
             List<String> titles = await( example.readProductTitles() );
             assertEquals( new HashSet<>( asList( "Tesseract", "Orb", "Eye of Agamotto" ) ), new HashSet<>( titles ) );
+        }
+    }
+
+    @Test
+    void testShouldAsyncRunResultConsumeExample() throws Exception
+    {
+        // Given
+        write( "CREATE (a:Person {name: 'Alice'})" );
+        write( "CREATE (a:Person {name: 'Bob'})" );
+        try ( AsyncResultConsumeExample example = new AsyncResultConsumeExample( uri, USER, PASSWORD ) )
+        {
+            // When
+            List<String> names = await( example.getPeople() );
+
+            // Then
+            assertThat( names, equalTo( asList( "Alice", "Bob" ) ) );
         }
     }
 
@@ -384,7 +421,7 @@ class ExamplesIT
             try ( AutoCloseable ignore = stdIOCapture.capture() )
             {
                 ResultSummary summary = await( example.printAllProducts() );
-                assertEquals( StatementType.READ_ONLY, summary.statementType() );
+                assertEquals( QueryType.READ_ONLY, summary.queryType() );
             }
 
             Set<String> capturedOutput = new HashSet<>( stdIOCapture.stdout() );
@@ -421,9 +458,9 @@ class ExamplesIT
     }
 
     @Test
-    void testAsyncExplicitTransactionExample() throws Exception
+    void testAsyncUnmanagedTransactionExample() throws Exception
     {
-        try ( AsyncExplicitTransactionExample example = new AsyncExplicitTransactionExample( uri, USER, PASSWORD ) )
+        try ( AsyncUnmanagedTransactionExample example = new AsyncUnmanagedTransactionExample( uri, USER, PASSWORD ) )
         {
             // create a 'Product' node
             try ( Session session = neo4j.driver().session() )
@@ -498,7 +535,7 @@ class ExamplesIT
             }
 
             // read all 'Product' nodes
-            List<String> titles = await( example.readProductTitlesReactor() );
+            List<String> titles = await( example.readProductTitles() );
             assertEquals( new HashSet<>( asList( "Tesseract", "Orb", "Eye of Agamotto" ) ), new HashSet<>( titles ) );
 
             titles = await( example.readProductTitlesRxJava() );
@@ -508,9 +545,9 @@ class ExamplesIT
 
     @Test
     @EnabledOnNeo4jWith( BOLT_V4 )
-    void testRxExplicitTransactionExample() throws Exception
+    void testRxUnmanagedTransactionExample() throws Exception
     {
-        try ( RxExplicitTransactionExample example = new RxExplicitTransactionExample( uri, USER, PASSWORD ) )
+        try ( RxUnmanagedTransactionExample example = new RxUnmanagedTransactionExample( uri, USER, PASSWORD ) )
         {
             // create a 'Product' node
             try ( Session session = neo4j.driver().session() )
@@ -518,7 +555,7 @@ class ExamplesIT
                 session.run( "CREATE (:Product {id: 0, title: 'Mind Gem'})" );
             }
 
-            List<String> products = await( example.readSingleProductReactor() );
+            List<String> products = await( example.readSingleProduct() );
             assertEquals( 1, products.size() );
             assertEquals( "Mind Gem", products.get( 0 ) );
 
@@ -548,10 +585,10 @@ class ExamplesIT
             // print all 'Product' nodes to fake stdout
             try ( AutoCloseable ignore = stdIOCapture.capture() )
             {
-                final List<ResultSummary> summaryList = await( example.printAllProductsReactor() );
+                final List<ResultSummary> summaryList = await( example.printAllProducts() );
                 assertThat( summaryList.size(), equalTo( 1 ) );
                 ResultSummary summary = summaryList.get( 0 );
-                assertEquals( StatementType.READ_ONLY, summary.statementType() );
+                assertEquals( QueryType.READ_ONLY, summary.queryType() );
             }
 
             Set<String> capturedOutput = new HashSet<>( stdIOCapture.stdout() );
@@ -581,11 +618,64 @@ class ExamplesIT
                 final List<ResultSummary> summaryList = await( example.printAllProductsRxJava() );
                 assertThat( summaryList.size(), equalTo( 1 ) );
                 ResultSummary summary = summaryList.get( 0 );
-                assertEquals( StatementType.READ_ONLY, summary.statementType() );
+                assertEquals( QueryType.READ_ONLY, summary.queryType() );
             }
 
             Set<String> capturedOutput = new HashSet<>( stdIOCapture.stdout() );
             assertEquals( new HashSet<>( asList( "Infinity Gauntlet", "Mjölnir" ) ), capturedOutput );
+        }
+    }
+
+    @Test
+    @EnabledOnNeo4jWith( BOLT_V4 )
+    void testShouldRunRxResultConsumeExampleReactor() throws Exception
+    {
+        // Given
+        write( "CREATE (a:Person {name: 'Alice'})" );
+        write( "CREATE (a:Person {name: 'Bob'})" );
+        try ( RxResultConsumeExample example = new RxResultConsumeExample( uri, USER, PASSWORD ) )
+        {
+            // When
+            List<String> names = await( example.getPeople() );
+
+            // Then
+            assertThat( names, equalTo( asList( "Alice", "Bob" ) ) );
+        }
+    }
+
+    @Test
+    @EnabledOnNeo4jWith( BOLT_V4 )
+    void testShouldRunRxResultConsumeExampleRxJava() throws Exception
+    {
+        // Given
+        write( "CREATE (a:Person {name: 'Alice'})" );
+        write( "CREATE (a:Person {name: 'Bob'})" );
+        try ( RxResultConsumeExample example = new RxResultConsumeExample( uri, USER, PASSWORD ) )
+        {
+            // When
+            List<String> names = await( example.getPeopleRxJava() );
+
+            // Then
+            assertThat( names, equalTo( asList( "Alice", "Bob" ) ) );
+        }
+    }
+
+    @Test
+    @EnabledOnNeo4jWith( value = BOLT_V4, edition = ENTERPRISE)
+    void testUseAnotherDatabaseExample() throws Exception
+    {
+        Driver driver = neo4j.driver();
+        dropDatabase( driver, "examples" );
+        createDatabase( driver, "examples" );
+
+        try ( DatabaseSelectionExample example = new DatabaseSelectionExample( uri, USER, PASSWORD ) )
+        {
+            // When
+            example.useAnotherDatabaseExample();
+
+            // Then
+            int greetingCount = readInt( "examples", "MATCH (a:Greeting) RETURN count(a)", Values.parameters() );
+            assertThat( greetingCount, is( 1 ) );
         }
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -20,14 +20,16 @@ package org.neo4j.driver.internal.util;
 
 import io.netty.util.internal.PlatformDependent;
 
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Stream;
 
 import org.neo4j.driver.exceptions.AuthenticationException;
 import org.neo4j.driver.exceptions.ClientException;
 import org.neo4j.driver.exceptions.DatabaseException;
-import org.neo4j.driver.exceptions.Neo4jException;
 import org.neo4j.driver.exceptions.FatalDiscoveryException;
+import org.neo4j.driver.exceptions.Neo4jException;
+import org.neo4j.driver.exceptions.ResultConsumedException;
 import org.neo4j.driver.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.exceptions.TransientException;
 
@@ -49,8 +51,14 @@ public final class ErrorUtil
     public static ServiceUnavailableException newConnectionTerminatedError()
     {
         return new ServiceUnavailableException( "Connection to the database terminated. " +
-                                                "This can happen due to network instabilities, " +
-                                                "or due to restarts of the database" );
+                "Please ensure that your database is listening on the correct host and port and that you have compatible encryption settings both on Neo4j server and driver. " +
+                "Note that the default encryption setting has changed in Neo4j 4.0." );
+    }
+
+    public static ResultConsumedException newResultConsumedError()
+    {
+        return new ResultConsumedException( "Cannot access records on this result any more as the result has already been consumed " +
+                "or the query runner where the result is created has already been closed." );
     }
 
     public static Neo4jException newNeo4jError( String code, String message )
@@ -138,6 +146,22 @@ public final class ErrorUtil
         {
             mainError.addSuppressed( error );
         }
+    }
+
+    public static Throwable getRootCause( Throwable error )
+    {
+        Objects.requireNonNull( error );
+        Throwable cause = error.getCause();
+        if ( cause == null )
+        {
+            // Nothing causes this error, returns the error itself
+            return error;
+        }
+        while ( cause.getCause() != null )
+        {
+            cause = cause.getCause();
+        }
+        return cause;
     }
 
     /**

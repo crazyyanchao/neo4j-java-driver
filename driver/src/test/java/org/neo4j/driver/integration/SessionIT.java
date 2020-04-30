@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -41,27 +41,28 @@ import org.neo4j.driver.AuthToken;
 import org.neo4j.driver.Config;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
+import org.neo4j.driver.QueryRunner;
 import org.neo4j.driver.Record;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
-import org.neo4j.driver.StatementRunner;
 import org.neo4j.driver.Transaction;
 import org.neo4j.driver.TransactionWork;
 import org.neo4j.driver.exceptions.AuthenticationException;
 import org.neo4j.driver.exceptions.ClientException;
+import org.neo4j.driver.exceptions.ResultConsumedException;
 import org.neo4j.driver.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.exceptions.TransientException;
 import org.neo4j.driver.internal.DriverFactory;
 import org.neo4j.driver.internal.cluster.RoutingSettings;
 import org.neo4j.driver.internal.retry.RetrySettings;
+import org.neo4j.driver.internal.security.SecurityPlanImpl;
 import org.neo4j.driver.internal.util.DisabledOnNeo4jWith;
 import org.neo4j.driver.internal.util.DriverFactoryWithFixedRetryLogic;
-import org.neo4j.driver.internal.util.DriverFactoryWithOneEventLoopThread;
 import org.neo4j.driver.internal.util.EnabledOnNeo4jWith;
+import org.neo4j.driver.reactive.RxResult;
 import org.neo4j.driver.reactive.RxSession;
-import org.neo4j.driver.reactive.RxStatementResult;
+import org.neo4j.driver.summary.QueryType;
 import org.neo4j.driver.summary.ResultSummary;
-import org.neo4j.driver.summary.StatementType;
 import org.neo4j.driver.util.DatabaseExtension;
 import org.neo4j.driver.util.ParallelizableIT;
 import org.neo4j.driver.util.TestUtil;
@@ -70,6 +71,7 @@ import static java.util.Collections.emptyList;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.instanceOf;
+import static org.hamcrest.CoreMatchers.startsWith;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.emptyArray;
 import static org.hamcrest.Matchers.is;
@@ -90,8 +92,9 @@ import static org.neo4j.driver.SessionConfig.builder;
 import static org.neo4j.driver.SessionConfig.forDatabase;
 import static org.neo4j.driver.Values.parameters;
 import static org.neo4j.driver.internal.logging.DevNullLogging.DEV_NULL_LOGGING;
-import static org.neo4j.driver.internal.util.BookmarkUtils.assertBookmarkContainsSingleValue;
-import static org.neo4j.driver.internal.util.BookmarkUtils.assertBookmarkIsEmpty;
+import static org.neo4j.driver.internal.util.BookmarkUtil.assertBookmarkContainsSingleValue;
+import static org.neo4j.driver.internal.util.BookmarkUtil.assertBookmarkIsEmpty;
+import static org.neo4j.driver.internal.util.BookmarkUtil.assertBookmarkIsNotEmpty;
 import static org.neo4j.driver.internal.util.Matchers.arithmeticError;
 import static org.neo4j.driver.internal.util.Matchers.connectionAcquisitionTimeoutError;
 import static org.neo4j.driver.internal.util.Neo4jFeature.BOLT_V4;
@@ -273,7 +276,7 @@ class SessionIT
 
             try ( Session session = driver.session() )
             {
-                StatementResult result = session.run( "MATCH (p:Person {name: 'Ronan'}) RETURN count(p)" );
+                Result result = session.run( "MATCH (p:Person {name: 'Ronan'}) RETURN count(p)" );
                 assertEquals( 0, result.single().get( 0 ).asInt() );
             }
 
@@ -297,7 +300,7 @@ class SessionIT
 
             try ( Session session = driver.session() )
             {
-                StatementResult result = session.run( "MATCH (p:Person {name: 'Ronan'}) RETURN count(p)" );
+                Result result = session.run( "MATCH (p:Person {name: 'Ronan'}) RETURN count(p)" );
                 assertEquals( 0, result.single().get( 0 ).asInt() );
             }
 
@@ -353,7 +356,7 @@ class SessionIT
 
             try ( Session session = driver.session() )
             {
-                StatementResult result = session.run( "MATCH (p:Person {name: 'Thor Odinson'}) RETURN count(p)" );
+                Result result = session.run( "MATCH (p:Person {name: 'Thor Odinson'}) RETURN count(p)" );
                 assertEquals( 1, result.single().get( 0 ).asInt() );
             }
         }
@@ -369,9 +372,10 @@ class SessionIT
 
             long answer = session.readTransaction( tx ->
             {
-                StatementResult result = tx.run( "RETURN 42" );
-                tx.failure();
-                return result.single().get( 0 ).asLong();
+                Result result = tx.run( "RETURN 42" );
+                long single = result.single().get( 0 ).asLong();
+                tx.rollback();
+                return single;
             } );
             assertEquals( 42, answer );
 
@@ -390,7 +394,7 @@ class SessionIT
                 int answer = session.writeTransaction( tx ->
                 {
                     tx.run( "CREATE (:Person {name: 'Natasha Romanoff'})" );
-                    tx.failure();
+                    tx.rollback();
                     return 42;
                 } );
 
@@ -399,7 +403,7 @@ class SessionIT
 
             try ( Session session = driver.session() )
             {
-                StatementResult result = session.run( "MATCH (p:Person {name: 'Natasha Romanoff'}) RETURN count(p)" );
+                Result result = session.run( "MATCH (p:Person {name: 'Natasha Romanoff'}) RETURN count(p)" );
                 assertEquals( 0, result.single().get( 0 ).asInt() );
             }
         }
@@ -416,7 +420,7 @@ class SessionIT
             assertThrows( IllegalStateException.class, () ->
                     session.readTransaction( tx ->
                     {
-                        StatementResult result = tx.run( "RETURN 42" );
+                        Result result = tx.run( "RETURN 42" );
                         if ( result.single().get( 0 ).asLong() == 42 )
                         {
                             throw new IllegalStateException();
@@ -446,7 +450,7 @@ class SessionIT
 
             try ( Session session = driver.session() )
             {
-                StatementResult result = session.run( "MATCH (p:Person {name: 'Natasha Romanoff'}) RETURN count(p)" );
+                Result result = session.run( "MATCH (p:Person {name: 'Natasha Romanoff'}) RETURN count(p)" );
                 assertEquals( 0, result.single().get( 0 ).asInt() );
             }
         }
@@ -458,50 +462,37 @@ class SessionIT
         try ( Driver driver = newDriverWithoutRetries();
               Session session = driver.session() )
         {
-            assertBookmarkIsEmpty( session.lastBookmark() );
-
-            long answer = session.readTransaction( tx ->
-            {
-                StatementResult result = tx.run( "RETURN 42" );
-                tx.success();
-                tx.failure();
+            ClientException error = assertThrows( ClientException.class, () -> session.readTransaction( tx -> {
+                Result result = tx.run( "RETURN 42" );
+                tx.commit();
+                tx.rollback();
                 return result.single().get( 0 ).asLong();
-            } );
-            assertEquals( 42, answer );
-
-            // bookmark should remain null after rollback
-            assertBookmarkIsEmpty( session.lastBookmark() );
+            } ) );
+            assertThat( error.getMessage(), startsWith( "Can't rollback, transaction has been committed" ) );
         }
     }
 
     @Test
-    void writeTxRolledBackWhenMarkedBothSuccessAndFailure()
+    void writeTxFailWhenBothCommitAndRollback()
     {
         try ( Driver driver = newDriverWithoutRetries() )
         {
             try ( Session session = driver.session() )
             {
-                int answer = session.writeTransaction( tx ->
-                {
+                ClientException error = assertThrows( ClientException.class, () -> session.writeTransaction( tx -> {
                     tx.run( "CREATE (:Person {name: 'Natasha Romanoff'})" );
-                    tx.success();
-                    tx.failure();
+                    tx.commit();
+                    tx.rollback();
                     return 42;
-                } );
+                } ) );
 
-                assertEquals( 42, answer );
-            }
-
-            try ( Session session = driver.session() )
-            {
-                StatementResult result = session.run( "MATCH (p:Person {name: 'Natasha Romanoff'}) RETURN count(p)" );
-                assertEquals( 0, result.single().get( 0 ).asInt() );
+                assertThat( error.getMessage(), startsWith( "Can't rollback, transaction has been committed" ) );
             }
         }
     }
 
     @Test
-    void readTxRolledBackWhenMarkedAsSuccessAndThrowsException()
+    void readTxCommittedWhenCommitAndThrowsException()
     {
         try ( Driver driver = newDriverWithoutRetries();
               Session session = driver.session() )
@@ -512,17 +503,17 @@ class SessionIT
                     session.readTransaction( tx ->
                     {
                         tx.run( "RETURN 42" );
-                        tx.success();
+                        tx.commit();
                         throw new IllegalStateException();
                     } ) );
 
-            // bookmark should remain null after rollback
-            assertBookmarkIsEmpty( session.lastBookmark() );
+            // We successfully committed
+            assertBookmarkIsNotEmpty( session.lastBookmark() );
         }
     }
 
     @Test
-    void writeTxRolledBackWhenMarkedAsSuccessAndThrowsException()
+    void writeTxCommittedWhenCommitAndThrowsException()
     {
         try ( Driver driver = newDriverWithoutRetries() )
         {
@@ -532,14 +523,59 @@ class SessionIT
                         session.writeTransaction( tx ->
                         {
                             tx.run( "CREATE (:Person {name: 'Natasha Romanoff'})" );
-                            tx.success();
+                            tx.commit();
                             throw new IllegalStateException();
                         } ) );
             }
 
             try ( Session session = driver.session() )
             {
-                StatementResult result = session.run( "MATCH (p:Person {name: 'Natasha Romanoff'}) RETURN count(p)" );
+                Result result = session.run( "MATCH (p:Person {name: 'Natasha Romanoff'}) RETURN count(p)" );
+                assertEquals( 1, result.single().get( 0 ).asInt() );
+            }
+        }
+    }
+
+    @Test
+    void readRolledBackWhenRollbackAndThrowsException()
+    {
+        try ( Driver driver = newDriverWithoutRetries();
+                Session session = driver.session() )
+        {
+            assertBookmarkIsEmpty( session.lastBookmark() );
+
+            assertThrows( IllegalStateException.class, () ->
+                    session.readTransaction( tx ->
+                    {
+                        tx.run( "RETURN 42" );
+                        tx.rollback();
+                        throw new IllegalStateException();
+                    } ) );
+
+            // bookmark should remain null after rollback
+            assertBookmarkIsEmpty( session.lastBookmark() );
+        }
+    }
+
+    @Test
+    void writeTxRolledBackWhenRollbackAndThrowsException()
+    {
+        try ( Driver driver = newDriverWithoutRetries() )
+        {
+            try ( Session session = driver.session() )
+            {
+                assertThrows( IllegalStateException.class, () ->
+                        session.writeTransaction( tx ->
+                        {
+                            tx.run( "CREATE (:Person {name: 'Natasha Romanoff'})" );
+                            tx.rollback();
+                            throw new IllegalStateException();
+                        } ) );
+            }
+
+            try ( Session session = driver.session() )
+            {
+                Result result = session.run( "MATCH (p:Person {name: 'Natasha Romanoff'}) RETURN count(p)" );
                 assertEquals( 0, result.single().get( 0 ).asInt() );
             }
         }
@@ -573,7 +609,7 @@ class SessionIT
                 // lock second node
                 updateNodeId( tx, nodeId2, newNodeId1 ).consume();
 
-                tx.success();
+                tx.commit();
             }
             return null;
         } );
@@ -592,7 +628,7 @@ class SessionIT
                 // lock first node
                 updateNodeId( tx, nodeId1, newNodeId2 ).consume();
 
-                tx.success();
+                tx.commit();
             }
             return null;
         } );
@@ -639,7 +675,7 @@ class SessionIT
                 // lock second node
                 updateNodeId( tx, nodeId2, newNodeId1 ).consume();
 
-                tx.success();
+                tx.commit();
             }
             return null;
         } );
@@ -740,28 +776,25 @@ class SessionIT
         assertThat( e.getMessage(), containsString( "/ by zero" ) );
     }
 
+    @EnabledOnNeo4jWith( BOLT_V4 )
     @Test
-    void shouldPropagatePullAllFailureWhenClosed()
+    void shouldNotPropagateFailureWhenStreamingIsCancelled()
     {
         Session session = neo4j.driver().session();
-
         session.run( "UNWIND range(20000, 0, -1) AS x RETURN 10 / x" );
-
-        ClientException e = assertThrows( ClientException.class, session::close );
-        assertThat( e.getMessage(), containsString( "/ by zero" ) );
+        session.close();
     }
 
     @Test
-    void shouldBePossibleToConsumeResultAfterSessionIsClosed()
+    void shouldNotBePossibleToConsumeResultAfterSessionIsClosed()
     {
-        StatementResult result;
+        Result result;
         try ( Session session = neo4j.driver().session() )
         {
             result = session.run( "UNWIND range(1, 20000) AS x RETURN x" );
         }
 
-        List<Integer> ints = result.list( record -> record.get( 0 ).asInt() );
-        assertEquals( 20000, ints.size() );
+        assertThrows( ResultConsumedException.class, () -> result.list( record -> record.get( 0 ).asInt() ) );
     }
 
     @Test
@@ -769,11 +802,11 @@ class SessionIT
     {
         try ( Session session = neo4j.driver().session() )
         {
-            StatementResult result = session.run( "RETURN Wrong" );
+            Result result = session.run( "RETURN Wrong" );
 
-            ClientException e = assertThrows( ClientException.class, result::summary );
+            ClientException e = assertThrows( ClientException.class, result::consume );
             assertThat( e.code(), containsString( "SyntaxError" ) );
-            assertNotNull( result.summary() );
+            assertNotNull( result.consume() );
         }
     }
 
@@ -846,9 +879,10 @@ class SessionIT
                 .withMaxConnectionPoolSize( maxPoolSize )
                 .withConnectionAcquisitionTimeout( 0, TimeUnit.SECONDS )
                 .withMaxTransactionRetryTime( 42, TimeUnit.DAYS ) // retry for a really long time
+                .withEventLoopThreads( 1 )
                 .build();
 
-        driver = new DriverFactoryWithOneEventLoopThread().newInstance( neo4j.uri(), neo4j.authToken(), config );
+        driver = GraphDatabase.driver( neo4j.uri(), neo4j.authToken(), config );
 
         for ( int i = 0; i < maxPoolSize; i++ )
         {
@@ -865,77 +899,58 @@ class SessionIT
     }
 
     @Test
-    void shouldAllowConsumingRecordsAfterFailureInSessionClose()
+    void shouldReportFailureInClose()
     {
         Session session = neo4j.driver().session();
 
-        StatementResult result = session.run( "CYPHER runtime=interpreted UNWIND [2, 4, 8, 0] AS x RETURN 32 / x" );
+        Result result = session.run( "CYPHER runtime=interpreted UNWIND [2, 4, 8, 0] AS x RETURN 32 / x" );
 
         ClientException e = assertThrows( ClientException.class, session::close );
         assertThat( e, is( arithmeticError() ) );
-
-        assertTrue( result.hasNext() );
-        assertEquals( 16, result.next().get( 0 ).asInt() );
-        assertTrue( result.hasNext() );
-        assertEquals( 8, result.next().get( 0 ).asInt() );
-        assertTrue( result.hasNext() );
-        assertEquals( 4, result.next().get( 0 ).asInt() );
-        assertFalse( result.hasNext() );
     }
 
     @Test
-    void shouldAllowAccessingRecordsAfterSummary()
+    void shouldNotAllowAccessingRecordsAfterSummary()
     {
         int recordCount = 10_000;
         String query = "UNWIND range(1, " + recordCount + ") AS x RETURN x";
 
         try ( Session session = neo4j.driver().session() )
         {
-            StatementResult result = session.run( query );
+            Result result = session.run( query );
 
-            ResultSummary summary = result.summary();
-            assertEquals( query, summary.statement().text() );
-            assertEquals( StatementType.READ_ONLY, summary.statementType() );
+            ResultSummary summary = result.consume();
+            assertEquals( query, summary.query().text() );
+            assertEquals( QueryType.READ_ONLY, summary.queryType() );
 
-            List<Record> records = result.list();
-            assertEquals( recordCount, records.size() );
-            for ( int i = 1; i <= recordCount; i++ )
-            {
-                Record record = records.get( i - 1 );
-                assertEquals( i, record.get( 0 ).asInt() );
-            }
+            assertThrows( ResultConsumedException.class, result::list );
         }
     }
 
     @Test
-    void shouldAllowAccessingRecordsAfterSessionClosed()
+    void shouldNotAllowAccessingRecordsAfterSessionClosed()
     {
         int recordCount = 11_333;
         String query = "UNWIND range(1, " + recordCount + ") AS x RETURN 'Result-' + x";
 
-        StatementResult result;
+        Result result;
         try ( Session session = neo4j.driver().session() )
         {
             result = session.run( query );
         }
 
-        List<Record> records = result.list();
-        assertEquals( recordCount, records.size() );
-        for ( int i = 1; i <= recordCount; i++ )
-        {
-            Record record = records.get( i - 1 );
-            assertEquals( "Result-" + i, record.get( 0 ).asString() );
-        }
+        assertThrows( ResultConsumedException.class, result::list );
     }
 
     @Test
+    @DisabledOnNeo4jWith( BOLT_V4 )
     void shouldAllowToConsumeRecordsSlowlyAndCloseSession() throws InterruptedException
     {
         Session session = neo4j.driver().session();
 
-        StatementResult result = session.run( "UNWIND range(10000, 0, -1) AS x RETURN 10 / x" );
+        Result result = session.run( "UNWIND range(10000, 0, -1) AS x RETURN 10 / x" );
 
-        // consume couple records slowly with a sleep in-between
+        // summary couple records slowly with a sleep in-between
         for ( int i = 0; i < 10; i++ )
         {
             assertTrue( result.hasNext() );
@@ -952,9 +967,9 @@ class SessionIT
     {
         try ( Session session = neo4j.driver().session() )
         {
-            StatementResult result = session.run( "UNWIND range(8000, 1, -1) AS x RETURN 42 / x" );
+            Result result = session.run( "UNWIND range(8000, 1, -1) AS x RETURN 42 / x" );
 
-            // consume couple records slowly with a sleep in-between
+            // summary couple records slowly with a sleep in-between
             for ( int i = 0; i < 12; i++ )
             {
                 assertTrue( result.hasNext() );
@@ -962,7 +977,7 @@ class SessionIT
                 Thread.sleep( 50 );
             }
 
-            ResultSummary summary = result.summary();
+            ResultSummary summary = result.consume();
             assertNotNull( summary );
         }
     }
@@ -1033,8 +1048,7 @@ class SessionIT
             // verify that query is still executing and has not failed because of the read timeout
             assertFalse( updateFuture.isDone() );
 
-            tx.success();
-            tx.close();
+            tx.commit();
 
             long hulkPower = updateFuture.get( 10, TimeUnit.SECONDS );
             assertEquals( 100, hulkPower );
@@ -1056,7 +1070,7 @@ class SessionIT
     {
         try ( Session session = neo4j.driver().session() )
         {
-            StatementResult result = session.run( "UNWIND [] AS x RETURN x" );
+            Result result = session.run( "UNWIND [] AS x RETURN x" );
             assertFalse( result.hasNext() );
 
             assertThrows( NoSuchElementException.class, result::next );
@@ -1068,10 +1082,10 @@ class SessionIT
     {
         try ( Session session = neo4j.driver().session() )
         {
-            StatementResult result = session.run( "UNWIND [] AS x RETURN x" );
+            Result result = session.run( "UNWIND [] AS x RETURN x" );
             ResultSummary summary = result.consume();
             assertNotNull( summary );
-            assertEquals( StatementType.READ_ONLY, summary.statementType() );
+            assertEquals( QueryType.READ_ONLY, summary.queryType() );
         }
     }
 
@@ -1080,44 +1094,24 @@ class SessionIT
     {
         try ( Session session = neo4j.driver().session() )
         {
-            StatementResult result = session.run( "UNWIND [] AS x RETURN x" );
+            Result result = session.run( "UNWIND [] AS x RETURN x" );
             assertEquals( emptyList(), result.list() );
         }
     }
 
     @Test
-    void shouldConsume()
-    {
-        try ( Session session = neo4j.driver().session() )
-        {
-            String query = "UNWIND [1, 2, 3, 4, 5] AS x RETURN x";
-            StatementResult result = session.run( query );
-
-            ResultSummary summary = result.consume();
-            assertEquals( query, summary.statement().text() );
-            assertEquals( StatementType.READ_ONLY, summary.statementType() );
-
-            assertFalse( result.hasNext() );
-            assertEquals( emptyList(), result.list() );
-        }
-    }
-
-    @Test
-    void shouldConsumeWithFailure()
+    void shouldReportFailureInSummary()
     {
         try ( Session session = neo4j.driver().session() )
         {
             String query = "UNWIND [1, 2, 3, 4, 0] AS x RETURN 10 / x";
-            StatementResult result = session.run( query );
+            Result result = session.run( query );
 
             ClientException e = assertThrows( ClientException.class, result::consume );
             assertThat( e, is( arithmeticError() ) );
 
-            assertFalse( result.hasNext() );
-            assertEquals( emptyList(), result.list() );
-
-            ResultSummary summary = result.summary();
-            assertEquals( query, summary.statement().text() );
+            ResultSummary summary = result.consume();
+            assertEquals( query, summary.query().text() );
         }
     }
 
@@ -1151,7 +1145,7 @@ class SessionIT
             tx.run( "CREATE (:Node {id: 123})" );
             tx.run( "CREATE (:Node {id: 456})" );
 
-            tx.success();
+            tx.commit();
         }
 
         assertEquals( 1, countNodesWithId( 123 ) );
@@ -1167,7 +1161,7 @@ class SessionIT
             tx.run( "CREATE (:Node {id: 123})" );
             tx.run( "CREATE (:Node {id: 456})" );
 
-            tx.failure();
+            tx.rollback();
         }
 
         assertEquals( 0, countNodesWithId( 123 ) );
@@ -1187,13 +1181,13 @@ class SessionIT
             int seenResources = 0;
 
             // read properties and resources using a single session
-            StatementResult properties = session.run( "MATCH (p:Property) RETURN p" );
+            Result properties = session.run( "MATCH (p:Property) RETURN p" );
             while ( properties.hasNext() )
             {
                 assertNotNull( properties.next() );
                 seenProperties++;
 
-                StatementResult resources = session.run( "MATCH (r:Resource) RETURN r" );
+                Result resources = session.run( "MATCH (r:Resource) RETURN r" );
                 while ( resources.hasNext() )
                 {
                     assertNotNull( resources.next() );
@@ -1212,7 +1206,7 @@ class SessionIT
     {
         // Given
         RxSession session = neo4j.driver().rxSession();
-        RxStatementResult result = session.run( "RETURN 1" );
+        RxResult result = session.run( "RETURN 1" );
 
         // When trying to run the query on a server that is using a protocol that is lower than V4
         StepVerifier.create( result.records() ).expectErrorSatisfies( error -> {
@@ -1255,7 +1249,7 @@ class SessionIT
         // Given
         try( Session session = neo4j.driver().session( forDatabase( "neo4j" ) ) )
         {
-            StatementResult result = session.run( "RETURN 1" );
+            Result result = session.run( "RETURN 1" );
             assertThat( result.single().get( 0 ).asInt(), equalTo( 1 ) );
         }
     }
@@ -1267,7 +1261,7 @@ class SessionIT
         try ( Session session = neo4j.driver().session( forDatabase( "neo4j" ) );
               Transaction transaction = session.beginTransaction() )
         {
-            StatementResult result = transaction.run( "RETURN 1" );
+            Result result = transaction.run( "RETURN 1" );
             assertThat( result.single().get( 0 ).asInt(), equalTo( 1 ) );
         }
     }
@@ -1290,7 +1284,7 @@ class SessionIT
         Session session = neo4j.driver().session( forDatabase( "foo" ) );
 
         ClientException error = assertThrows( ClientException.class, () -> {
-            StatementResult result = session.run( "RETURN 1" );
+            Result result = session.run( "RETURN 1" );
             result.consume();
         } );
 
@@ -1308,7 +1302,7 @@ class SessionIT
         // When trying to run the query on a server that is using a protocol that is lower than V4
         ClientException error = assertThrows( ClientException.class, () -> {
             Transaction transaction = session.beginTransaction();
-            StatementResult result = transaction.run( "RETURN 1" );
+            Result result = transaction.run( "RETURN 1" );
             result.consume();
         });
         assertThat( error.getMessage(), containsString( "Database does not exist. Database name: 'foo'" ) );
@@ -1368,9 +1362,9 @@ class SessionIT
         {
             String material = session.writeTransaction( tx ->
             {
-                StatementResult result = tx.run( "CREATE (s:Shield {material: 'Vibranium'}) RETURN s" );
-                tx.success();
+                Result result = tx.run( "CREATE (s:Shield {material: 'Vibranium'}) RETURN s" );
                 Record record = result.single();
+                tx.commit();
                 return record.get( 0 ).asNode().get( "material" ).asString();
             } );
 
@@ -1397,7 +1391,7 @@ class SessionIT
                         tx.run( "CREATE (:Person {name: 'Thanos'})" );
                         // trigger division by zero error:
                         tx.run( "UNWIND range(0, 1) AS i RETURN 10/i" );
-                        tx.success();
+                        tx.commit();
                         return null;
                     } ) );
         }
@@ -1420,7 +1414,7 @@ class SessionIT
     {
         DriverFactory driverFactory = new DriverFactoryWithFixedRetryLogic( maxRetriesCount );
         AuthToken auth = DEFAULT_AUTH_TOKEN;
-        return driverFactory.newInstance( neo4j.uri(), auth, RoutingSettings.DEFAULT, RetrySettings.DEFAULT, noLoggingConfig() );
+        return driverFactory.newInstance( neo4j.uri(), auth, RoutingSettings.DEFAULT, RetrySettings.DEFAULT, noLoggingConfig(), SecurityPlanImpl.insecure() );
     }
 
     private Driver newDriverWithLimitedRetries( int maxTxRetryTime, TimeUnit unit )
@@ -1446,7 +1440,7 @@ class SessionIT
     {
         try ( Session session = neo4j.driver().session() )
         {
-            StatementResult result = session.run( "MATCH (n {id: {id}}) RETURN count(n)", parameters( "id", id ) );
+            Result result = session.run( "MATCH (n {id: $id}) RETURN count(n)", parameters( "id", id ) );
             return result.single().get( 0 ).asInt();
         }
     }
@@ -1455,13 +1449,13 @@ class SessionIT
     {
         try ( Session session = neo4j.driver().session() )
         {
-            session.run( "CREATE (n {id: {id}})", parameters( "id", id ) );
+            session.run( "CREATE (n {id: $id})", parameters( "id", id ) );
         }
     }
 
-    private static StatementResult updateNodeId( StatementRunner statementRunner, int currentId, int newId )
+    private static Result updateNodeId(QueryRunner queryRunner, int currentId, int newId )
     {
-        return statementRunner.run( "MATCH (n {id: {currentId}}) SET n.id = {newId}",
+        return queryRunner.run( "MATCH (n {id: $currentId}) SET n.id = $newId",
                 parameters( "currentId", currentId, "newId", newId ) );
     }
 
@@ -1536,13 +1530,14 @@ class SessionIT
         @Override
         public Record execute( Transaction tx )
         {
-            StatementResult result = tx.run( query );
+            Result result = tx.run( query );
             if ( invoked++ < failures )
             {
                 throw new ServiceUnavailableException( "" );
             }
-            tx.success();
-            return result.single();
+            Record single = result.single();
+            tx.commit();
+            return single;
         }
     }
 }

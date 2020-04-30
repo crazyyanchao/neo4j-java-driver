@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -22,5 +22,13 @@ import java.util.concurrent.CompletionStage;
 
 public interface FailableCursor
 {
-    CompletionStage<Throwable> failureAsync();
+    /**
+     * Discarding all unconsumed records and returning failure if there is any to run and/or pulls.
+     */
+    CompletionStage<Throwable> discardAllFailureAsync();
+
+    /**
+     * Pulling all unconsumed records into memory and returning failure if there is any to run and/or pulls.
+     */
+    CompletionStage<Throwable> pullAllFailureAsync();
 }

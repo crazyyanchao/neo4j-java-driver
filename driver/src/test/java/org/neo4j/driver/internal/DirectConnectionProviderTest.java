@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -41,9 +41,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.neo4j.driver.AccessMode.READ;
 import static org.neo4j.driver.AccessMode.WRITE;
-import static org.neo4j.driver.internal.cluster.RediscoveryUtils.contextWithDatabase;
-import static org.neo4j.driver.internal.cluster.RediscoveryUtils.contextWithMode;
-import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.ABSENT_DB_NAME;
+import static org.neo4j.driver.internal.cluster.RediscoveryUtil.contextWithDatabase;
+import static org.neo4j.driver.internal.cluster.RediscoveryUtil.contextWithMode;
 import static org.neo4j.driver.util.TestUtil.await;
 
 class DirectConnectionProviderTest
@@ -120,7 +119,7 @@ class DirectConnectionProviderTest
 
 
     @ParameterizedTest
-    @ValueSource( strings = {"", "foo", "data", ABSENT_DB_NAME} )
+    @ValueSource( strings = {"", "foo", "data"} )
     void shouldObtainDatabaseNameOnConnection( String databaseName ) throws Throwable
     {
         BoltServerAddress address = BoltServerAddress.LOCAL_DEFAULT;
@@ -129,7 +128,7 @@ class DirectConnectionProviderTest
 
         Connection acquired = await( provider.acquireConnection( contextWithDatabase( databaseName ) ) );
 
-        assertEquals( databaseName, acquired.databaseName() );
+        assertEquals( databaseName, acquired.databaseName().description() );
     }
 
     @SuppressWarnings( "unchecked" )

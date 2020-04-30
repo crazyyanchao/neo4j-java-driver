@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -45,8 +45,10 @@ public class AsyncWriteQueryInTx<C extends AbstractContext> extends AbstractAsyn
 
         CompletionStage<ResultSummary> txCommitted = session.beginTransactionAsync().thenCompose( tx ->
                 tx.runAsync( "CREATE ()" ).thenCompose( cursor ->
-                        cursor.summaryAsync().thenCompose( summary ->
-                                tx.commitAsync().thenApply( ignore -> summary ) ) ) );
+                        cursor.consumeAsync().thenCompose( summary -> tx.commitAsync().thenApply( ignore -> {
+                            context.setBookmark( session.lastBookmark() );
+                            return summary;
+                        } ) ) ) );
 
         return txCommitted.handle( ( summary, error ) ->
         {

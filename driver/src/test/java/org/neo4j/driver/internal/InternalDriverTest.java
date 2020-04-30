@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -28,7 +28,7 @@ import org.neo4j.driver.exceptions.ClientException;
 import org.neo4j.driver.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.internal.metrics.InternalMetrics;
 import org.neo4j.driver.internal.metrics.MetricsProvider;
-import org.neo4j.driver.internal.security.SecurityPlan;
+import org.neo4j.driver.internal.security.SecurityPlanImpl;
 import org.neo4j.driver.internal.util.Clock;
 
 import static org.junit.Assert.assertTrue;
@@ -121,7 +121,7 @@ class InternalDriverTest
 
     private static InternalDriver newDriver( SessionFactory sessionFactory )
     {
-        return new InternalDriver( SecurityPlan.insecure(), sessionFactory, METRICS_DISABLED_PROVIDER, DEV_NULL_LOGGING );
+        return new InternalDriver( SecurityPlanImpl.insecure(), sessionFactory, METRICS_DISABLED_PROVIDER, DEV_NULL_LOGGING );
     }
 
     private static SessionFactory sessionFactoryMock()
@@ -141,6 +141,6 @@ class InternalDriverTest
         }
 
         MetricsProvider metricsProvider = DriverFactory.createDriverMetrics( config, Clock.SYSTEM );
-        return new InternalDriver( SecurityPlan.insecure(), sessionFactory, metricsProvider, DEV_NULL_LOGGING );
+        return new InternalDriver( SecurityPlanImpl.insecure(), sessionFactory, metricsProvider, DEV_NULL_LOGGING );
     }
 }

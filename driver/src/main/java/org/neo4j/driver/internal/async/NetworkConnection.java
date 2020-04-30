@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -19,7 +19,6 @@
 package org.neo4j.driver.internal.async;
 
 import io.netty.channel.Channel;
-import io.netty.channel.pool.ChannelPool;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -28,6 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.neo4j.driver.internal.BoltServerAddress;
 import org.neo4j.driver.internal.async.connection.ChannelAttributes;
 import org.neo4j.driver.internal.async.inbound.InboundMessageDispatcher;
+import org.neo4j.driver.internal.async.pool.ExtendedChannelPool;
 import org.neo4j.driver.internal.handlers.ChannelReleasingResetResponseHandler;
 import org.neo4j.driver.internal.handlers.ResetResponseHandler;
 import org.neo4j.driver.internal.messaging.BoltProtocol;
@@ -41,6 +41,7 @@ import org.neo4j.driver.internal.util.Clock;
 import org.neo4j.driver.internal.util.ServerVersion;
 
 import static java.util.Collections.emptyMap;
+import static org.neo4j.driver.internal.async.connection.ChannelAttributes.poolId;
 import static org.neo4j.driver.internal.async.connection.ChannelAttributes.setTerminationReason;
 
 /**
@@ -56,7 +57,7 @@ public class NetworkConnection implements Connection
     private final BoltServerAddress serverAddress;
     private final ServerVersion serverVersion;
     private final BoltProtocol protocol;
-    private final ChannelPool channelPool;
+    private final ExtendedChannelPool channelPool;
     private final CompletableFuture<Void> releaseFuture;
     private final Clock clock;
 
@@ -64,7 +65,7 @@ public class NetworkConnection implements Connection
     private final MetricsListener metricsListener;
     private final ListenerEvent inUseEvent;
 
-    public NetworkConnection( Channel channel, ChannelPool channelPool, Clock clock, MetricsListener metricsListener )
+    public NetworkConnection( Channel channel, ExtendedChannelPool channelPool, Clock clock, MetricsListener metricsListener )
     {
         this.channel = channel;
         this.messageDispatcher = ChannelAttributes.messageDispatcher( channel );
@@ -76,7 +77,7 @@ public class NetworkConnection implements Connection
         this.clock = clock;
         this.metricsListener = metricsListener;
         this.inUseEvent = metricsListener.createListenerEvent();
-        metricsListener.afterConnectionCreated( this.serverAddress, this.inUseEvent );
+        metricsListener.afterConnectionCreated( poolId( this.channel ), this.inUseEvent );
     }
 
     @Override
@@ -166,7 +167,7 @@ public class NetworkConnection implements Connection
                     channelPool, messageDispatcher, clock, releaseFuture );
 
             writeResetMessageIfNeeded( handler, false );
-            metricsListener.afterConnectionReleased( this.serverAddress, this.inUseEvent );
+            metricsListener.afterConnectionReleased( poolId( this.channel ), this.inUseEvent );
         }
         return releaseFuture;
     }
@@ -180,7 +181,7 @@ public class NetworkConnection implements Connection
             channel.close();
             channelPool.release( channel );
             releaseFuture.complete( null );
-            metricsListener.afterConnectionReleased( this.serverAddress, this.inUseEvent );
+            metricsListener.afterConnectionReleased( poolId( this.channel ), this.inUseEvent );
         }
     }
 

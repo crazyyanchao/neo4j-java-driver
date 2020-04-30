@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -38,13 +38,14 @@ import org.neo4j.driver.Config;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Transaction;
 import org.neo4j.driver.exceptions.ClientException;
 import org.neo4j.driver.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.internal.cluster.RoutingSettings;
 import org.neo4j.driver.internal.messaging.response.FailureMessage;
 import org.neo4j.driver.internal.retry.RetrySettings;
+import org.neo4j.driver.internal.security.SecurityPlanImpl;
 import org.neo4j.driver.internal.util.FailingMessageFormat;
 import org.neo4j.driver.internal.util.FakeClock;
 import org.neo4j.driver.internal.util.io.ChannelTrackingDriverFactory;
@@ -80,7 +81,7 @@ class ErrorIT
     {
         ClientException e = assertThrows( ClientException.class, () ->
         {
-            StatementResult result = session.run( "invalid statement" );
+            Result result = session.run( "invalid query" );
             result.consume();
         } );
 
@@ -99,20 +100,20 @@ class ErrorIT
         // Expect
         ClientException e = assertThrows( ClientException.class, () ->
         {
-            StatementResult cursor = tx.run( "RETURN 1" );
+            Result cursor = tx.run( "RETURN 1" );
             cursor.single().get( "1" ).asInt();
         } );
-        assertThat( e.getMessage(), startsWith( "Cannot run more statements in this transaction" ) );
+        assertThat( e.getMessage(), startsWith( "Cannot run more queries in this transaction" ) );
     }
 
     @Test
-    void shouldAllowNewStatementAfterRecoverableError()
+    void shouldAllowNewQueryAfterRecoverableError()
     {
         // Given an error has occurred
         try { session.run( "invalid" ).consume(); } catch ( ClientException e ) {/*empty*/}
 
         // When
-        StatementResult cursor = session.run( "RETURN 1" );
+        Result cursor = session.run( "RETURN 1" );
         int val = cursor.single().get( "1" ).asInt();
 
         // Then
@@ -132,7 +133,7 @@ class ErrorIT
         // When
         try ( Transaction tx = session.beginTransaction() )
         {
-            StatementResult cursor = tx.run( "RETURN 1" );
+            Result cursor = tx.run( "RETURN 1" );
             int val = cursor.single().get( "1" ).asInt();
 
             // Then
@@ -158,16 +159,14 @@ class ErrorIT
         // given
         Transaction tx = session.beginTransaction();
         tx.run( "CREATE CONSTRAINT ON (a:`" + label + "`) ASSERT a.name IS UNIQUE" );
-        tx.success();
-        tx.close();
+        tx.commit();
 
         // and
         tx = session.beginTransaction();
         tx.run( "CREATE INDEX ON :`" + label + "`(name)" );
-        tx.success();
 
         // then expect
-        ClientException e = assertThrows( ClientException.class, tx::close );
+        ClientException e = assertThrows( ClientException.class, tx::commit );
         assertThat( e.getMessage(), containsString( label ) );
         assertThat( e.getMessage(), containsString( "name" ) );
     }
@@ -266,7 +265,7 @@ class ErrorIT
         Config config = Config.builder().withLogging( DEV_NULL_LOGGING ).build();
         Throwable queryError = null;
 
-        try ( Driver driver = driverFactory.newInstance( uri, authToken, routingSettings, retrySettings, config ) )
+        try ( Driver driver = driverFactory.newInstance( uri, authToken, routingSettings, retrySettings, config, SecurityPlanImpl.insecure() ) )
         {
             driver.verifyConnectivity();
             try(Session session = driver.session() )

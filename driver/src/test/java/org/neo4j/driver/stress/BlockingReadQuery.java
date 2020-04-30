@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -24,7 +24,7 @@ import org.neo4j.driver.AccessMode;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.types.Node;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -42,7 +42,7 @@ public class BlockingReadQuery<C extends AbstractContext> extends AbstractBlocki
     {
         try ( Session session = newSession( AccessMode.READ, context ) )
         {
-            StatementResult result = session.run( "MATCH (n) RETURN n LIMIT 1" );
+            Result result = session.run( "MATCH (n) RETURN n LIMIT 1" );
             List<Record> records = result.list();
             if ( !records.isEmpty() )
             {
@@ -51,7 +51,7 @@ public class BlockingReadQuery<C extends AbstractContext> extends AbstractBlocki
                 assertNotNull( node );
             }
 
-            context.readCompleted( result.summary() );
+            context.readCompleted( result.consume() );
         }
     }
 }

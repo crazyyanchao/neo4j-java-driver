@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -21,6 +21,7 @@ package org.neo4j.driver.internal.async;
 import org.neo4j.driver.AccessMode;
 import org.neo4j.driver.Logging;
 import org.neo4j.driver.internal.BookmarkHolder;
+import org.neo4j.driver.internal.DatabaseName;
 import org.neo4j.driver.internal.retry.RetryLogic;
 import org.neo4j.driver.internal.spi.ConnectionProvider;
 import org.neo4j.driver.internal.util.Futures;
@@ -31,10 +32,10 @@ public class LeakLoggingNetworkSession extends NetworkSession
 {
     private final String stackTrace;
 
-    public LeakLoggingNetworkSession( ConnectionProvider connectionProvider, RetryLogic retryLogic, String databaseName, AccessMode mode,
-            BookmarkHolder bookmarkHolder, Logging logging )
+    public LeakLoggingNetworkSession( ConnectionProvider connectionProvider, RetryLogic retryLogic, DatabaseName databaseName, AccessMode mode,
+            BookmarkHolder bookmarkHolder, long fetchSize, Logging logging )
     {
-        super( connectionProvider, retryLogic, databaseName, mode, bookmarkHolder, logging );
+        super( connectionProvider, retryLogic, databaseName, mode, bookmarkHolder, fetchSize, logging );
         this.stackTrace = captureStackTrace();
     }
 

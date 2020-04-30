@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,6 +18,7 @@
  */
 package org.neo4j.driver.internal.metrics;
 
+import org.neo4j.driver.Logging;
 import org.neo4j.driver.internal.util.Clock;
 import org.neo4j.driver.Metrics;
 
@@ -25,9 +26,9 @@ public class InternalMetricsProvider implements MetricsProvider
 {
     private final InternalMetrics metrics;
 
-    public InternalMetricsProvider( Clock clock )
+    public InternalMetricsProvider( Clock clock, Logging logging )
     {
-        this.metrics = new InternalMetrics( clock );
+        this.metrics = new InternalMetrics( clock, logging );
     }
 
     @Override
@@ -40,5 +41,11 @@ public class InternalMetricsProvider implements MetricsProvider
     public MetricsListener metricsListener()
     {
         return metrics;
+    }
+
+    @Override
+    public boolean isMetricsEnabled()
+    {
+        return true;
     }
 }

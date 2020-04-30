@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -46,24 +46,29 @@ public class RxWriteQueryInTx<C extends AbstractContext> extends AbstractRxQuery
     {
         CompletableFuture<Void> queryFinished = new CompletableFuture<>();
         RxSession session = newSession( AccessMode.WRITE, context );
-        Flux.usingWhen( session.beginTransaction(), tx -> tx.run( "CREATE ()" ).summary(), RxTransaction::commit, RxTransaction::rollback ).subscribe(
+        Flux.usingWhen( session.beginTransaction(), tx -> tx.run( "CREATE ()" ).consume(),
+                RxTransaction::commit, ( tx, error ) -> tx.rollback(), null ).subscribe(
                 summary -> {
+                    context.setBookmark( session.lastBookmark() );
                     assertEquals( 1, summary.counters().nodesCreated() );
                     context.nodeCreated();
                     queryFinished.complete( null );
                 }, error -> {
-                    handleError( Futures.completionExceptionCause( error ), context );
-                    queryFinished.complete( null );
+                    handleError( Futures.completionExceptionCause( error ), context, queryFinished );
                 } );
 
         return queryFinished;
     }
 
-    private void handleError( Throwable error, C context )
+    private void handleError( Throwable error, C context, CompletableFuture<Void> queryFinished )
     {
         if ( !stressTest.handleWriteFailure( error, context ) )
         {
-            throw new RuntimeException( error );
+            queryFinished.completeExceptionally( error );
+        }
+        else
+        {
+            queryFinished.complete( null );
         }
     }
 }

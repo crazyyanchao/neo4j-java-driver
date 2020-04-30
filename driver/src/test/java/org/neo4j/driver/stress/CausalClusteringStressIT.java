@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.neo4j.driver.AuthToken;
+import org.neo4j.driver.Config;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.exceptions.SessionExpiredException;
 import org.neo4j.driver.internal.BoltServerAddress;
@@ -63,6 +64,12 @@ class CausalClusteringStressIT extends AbstractStressTestBase<CausalClusteringSt
     AuthToken authToken()
     {
         return clusterRule.getAuthToken();
+    }
+
+    @Override
+    Config.ConfigBuilder config( Config.ConfigBuilder builder )
+    {
+        return clusterRule.config( builder );
     }
 
     @Override
@@ -126,6 +133,12 @@ class CausalClusteringStressIT extends AbstractStressTestBase<CausalClusteringSt
 
         System.out.println( "Leader switches: " + context.getLeaderSwitchCount() );
         System.out.println( "Bookmark failures: " + context.getBookmarkFailures() );
+    }
+
+    @Override
+    void dumpLogs()
+    {
+        clusterRule.dumpClusterLogs();
     }
 
     private static ClusterAddresses fetchClusterAddresses( Driver driver )

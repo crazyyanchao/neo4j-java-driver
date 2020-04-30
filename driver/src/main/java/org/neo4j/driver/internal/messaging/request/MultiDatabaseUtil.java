@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,21 +18,25 @@
  */
 package org.neo4j.driver.internal.messaging.request;
 
-import java.util.Objects;
-
 import org.neo4j.driver.exceptions.ClientException;
+import org.neo4j.driver.internal.DatabaseName;
+import org.neo4j.driver.internal.messaging.v4.BoltProtocolV4;
+import org.neo4j.driver.internal.spi.Connection;
+import org.neo4j.driver.internal.util.ServerVersion;
 
 public final class MultiDatabaseUtil
 {
-    public static final String ABSENT_DB_NAME = ""; // TODO _default
-    public static final String SYSTEM_DB_NAME = "system"; // TODO _dbms
-
-    public static void assertEmptyDatabaseName( String databaseName, int boltVersion )
+    public static void assertEmptyDatabaseName( DatabaseName databaseName, int boltVersion )
     {
-        if ( !Objects.equals( ABSENT_DB_NAME, databaseName ) )
+        if ( databaseName.databaseName().isPresent() )
         {
             throw new ClientException( String.format( "Database name parameter for selecting database is not supported in Bolt Protocol Version %s. " +
-                    "Database name: `%s`", boltVersion, databaseName ) );
+                    "Database name: '%s'", boltVersion, databaseName.description() ) );
         }
+    }
+
+    public static boolean supportsMultiDatabase( Connection connection )
+    {
+        return connection.serverVersion().greaterThanOrEqual( ServerVersion.v4_0_0 ) && connection.protocol().version() >= BoltProtocolV4.VERSION;
     }
 }

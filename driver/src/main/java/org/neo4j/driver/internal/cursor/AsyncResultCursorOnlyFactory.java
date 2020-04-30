@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -20,22 +20,20 @@ package org.neo4j.driver.internal.cursor;
 
 import java.util.concurrent.CompletionStage;
 
-import org.neo4j.driver.internal.async.AsyncStatementResultCursor;
+import org.neo4j.driver.exceptions.ClientException;
 import org.neo4j.driver.internal.handlers.PullAllResponseHandler;
 import org.neo4j.driver.internal.handlers.RunResponseHandler;
 import org.neo4j.driver.internal.messaging.Message;
 import org.neo4j.driver.internal.spi.Connection;
 import org.neo4j.driver.internal.util.Futures;
-import org.neo4j.driver.exceptions.ClientException;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.CompletableFuture.completedFuture;
-import static org.neo4j.driver.internal.messaging.request.PullAllMessage.PULL_ALL;
 
 /**
  * Used by Bolt V1, V2, V3
  */
-public class AsyncResultCursorOnlyFactory implements StatementResultCursorFactory
+public class AsyncResultCursorOnlyFactory implements ResultCursorFactory
 {
     protected final Connection connection;
     protected final Message runMessage;
@@ -43,8 +41,8 @@ public class AsyncResultCursorOnlyFactory implements StatementResultCursorFactor
     protected final PullAllResponseHandler pullAllHandler;
     private final boolean waitForRunResponse;
 
-    public AsyncResultCursorOnlyFactory( Connection connection, Message runMessage, RunResponseHandler runHandler,
-            PullAllResponseHandler pullHandler, boolean waitForRunResponse )
+    public AsyncResultCursorOnlyFactory(Connection connection, Message runMessage, RunResponseHandler runHandler,
+                                        PullAllResponseHandler pullHandler, boolean waitForRunResponse )
     {
         requireNonNull( connection );
         requireNonNull( runMessage );
@@ -59,23 +57,25 @@ public class AsyncResultCursorOnlyFactory implements StatementResultCursorFactor
         this.waitForRunResponse = waitForRunResponse;
     }
 
-    public CompletionStage<InternalStatementResultCursor> asyncResult()
+    public CompletionStage<AsyncResultCursor> asyncResult()
     {
         // only write and flush messages when async result is wanted.
-        connection.writeAndFlush( runMessage, runHandler, PULL_ALL, pullAllHandler );
+        connection.write( runMessage, runHandler ); // queues the run message, will be flushed with pull message together
+        pullAllHandler.prePopulateRecords();
 
         if ( waitForRunResponse )
         {
             // wait for response of RUN before proceeding
-            return runHandler.runFuture().thenApply( ignore -> new AsyncStatementResultCursor( runHandler, pullAllHandler ) );
+            return runHandler.runFuture().thenApply( ignore ->
+                    new DisposableAsyncResultCursor( new AsyncResultCursorImpl( runHandler, pullAllHandler ) ) );
         }
         else
         {
-            return completedFuture( new AsyncStatementResultCursor( runHandler, pullAllHandler ) );
+            return completedFuture( new DisposableAsyncResultCursor( new AsyncResultCursorImpl( runHandler, pullAllHandler ) ) );
         }
     }
 
-    public CompletionStage<RxStatementResultCursor> rxResult()
+    public CompletionStage<RxResultCursor> rxResult()
     {
         return Futures.failedFuture( new ClientException( "Driver is connected to the database that does not support driver reactive API. " +
                 "In order to use the driver reactive API, please upgrade to neo4j 4.0.0 or later." ) );

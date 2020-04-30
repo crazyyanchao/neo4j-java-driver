@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -20,14 +20,14 @@ package org.neo4j.driver.internal.async;
 
 import java.util.concurrent.CompletionStage;
 
-import org.neo4j.driver.Statement;
+import org.neo4j.driver.Query;
 import org.neo4j.driver.async.AsyncTransaction;
-import org.neo4j.driver.async.StatementResultCursor;
+import org.neo4j.driver.async.ResultCursor;
 
-public class InternalAsyncTransaction extends AsyncAbstractStatementRunner implements AsyncTransaction
+public class InternalAsyncTransaction extends AsyncAbstractQueryRunner implements AsyncTransaction
 {
-    private final ExplicitTransaction tx;
-    public InternalAsyncTransaction( ExplicitTransaction tx )
+    private final UnmanagedTransaction tx;
+    public InternalAsyncTransaction( UnmanagedTransaction tx )
     {
         this.tx = tx;
     }
@@ -45,9 +45,9 @@ public class InternalAsyncTransaction extends AsyncAbstractStatementRunner imple
     }
 
     @Override
-    public CompletionStage<StatementResultCursor> runAsync( Statement statement )
+    public CompletionStage<ResultCursor> runAsync(Query query)
     {
-        return tx.runAsync( statement, true );
+        return tx.runAsync(query, true );
     }
 
     public void markTerminated()

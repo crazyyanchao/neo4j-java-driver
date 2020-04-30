@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -20,10 +20,11 @@ package org.neo4j.driver.internal.cluster;
 
 import java.util.concurrent.CompletionStage;
 
-import org.neo4j.driver.internal.InternalBookmark;
+import org.neo4j.driver.Bookmark;
+import org.neo4j.driver.internal.DatabaseName;
 import org.neo4j.driver.internal.spi.Connection;
 
 public interface ClusterCompositionProvider
 {
-    CompletionStage<ClusterComposition> getClusterComposition( Connection connection, String databaseName, InternalBookmark bookmark );
+    CompletionStage<ClusterComposition> getClusterComposition( Connection connection, DatabaseName databaseName, Bookmark bookmark );
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -24,16 +24,17 @@ import io.netty.channel.ChannelPromise;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
 
+import org.neo4j.driver.Bookmark;
+import org.neo4j.driver.Query;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.Statement;
 import org.neo4j.driver.Transaction;
 import org.neo4j.driver.TransactionConfig;
 import org.neo4j.driver.Value;
 import org.neo4j.driver.exceptions.ClientException;
 import org.neo4j.driver.internal.BookmarkHolder;
 import org.neo4j.driver.internal.InternalBookmark;
-import org.neo4j.driver.internal.async.ExplicitTransaction;
-import org.neo4j.driver.internal.cursor.StatementResultCursorFactory;
+import org.neo4j.driver.internal.async.UnmanagedTransaction;
+import org.neo4j.driver.internal.cursor.ResultCursorFactory;
 import org.neo4j.driver.internal.messaging.v1.BoltProtocolV1;
 import org.neo4j.driver.internal.messaging.v2.BoltProtocolV2;
 import org.neo4j.driver.internal.messaging.v3.BoltProtocolV3;
@@ -67,25 +68,25 @@ public interface BoltProtocol
     void prepareToCloseChannel( Channel channel );
 
     /**
-     * Begin an explicit transaction.
+     * Begin an unmanaged transaction.
      *
      * @param connection the connection to use.
      * @param bookmark the bookmarks. Never null, should be {@link InternalBookmark#empty()} when absent.
      * @param config the transaction configuration. Never null, should be {@link TransactionConfig#empty()} when absent.
      * @return a completion stage completed when transaction is started or completed exceptionally when there was a failure.
      */
-    CompletionStage<Void> beginTransaction( Connection connection, InternalBookmark bookmark, TransactionConfig config );
+    CompletionStage<Void> beginTransaction( Connection connection, Bookmark bookmark, TransactionConfig config );
 
     /**
-     * Commit the explicit transaction.
+     * Commit the unmanaged transaction.
      *
      * @param connection the connection to use.
      * @return a completion stage completed with a bookmark when transaction is committed or completed exceptionally when there was a failure.
      */
-    CompletionStage<InternalBookmark> commitTransaction( Connection connection );
+    CompletionStage<Bookmark> commitTransaction( Connection connection );
 
     /**
-     * Rollback the explicit transaction.
+     * Rollback the unmanaged transaction.
      *
      * @param connection the connection to use.
      * @return a completion stage completed when transaction is rolled back or completed exceptionally when there was a failure.
@@ -93,33 +94,35 @@ public interface BoltProtocol
     CompletionStage<Void> rollbackTransaction( Connection connection );
 
     /**
-     * Execute the given statement in an aut-commit transaction, i.e. {@link Session#run(Statement)}.
+     * Execute the given query in an auto-commit transaction, i.e. {@link Session#run(Query)}.
      *
      * @param connection the network connection to use.
-     * @param statement the cypher to execute.
+     * @param query the cypher to execute.
      * @param bookmarkHolder the bookmarksHolder that keeps track of the current bookmark and can be updated with a new bookmark.
      * @param config the transaction config for the implicitly started auto-commit transaction.
      * @param waitForRunResponse {@code true} for async query execution and {@code false} for blocking query
-     * execution. Makes returned cursor stage be chained after the RUN response arrives. Needed to have statement
+     * execution. Makes returned cursor stage be chained after the RUN response arrives. Needed to have query
      * keys populated.
+     * @param fetchSize the record fetch size for PULL message.
      * @return stage with cursor.
      */
-    StatementResultCursorFactory runInAutoCommitTransaction( Connection connection, Statement statement,
-            BookmarkHolder bookmarkHolder, TransactionConfig config, boolean waitForRunResponse );
+    ResultCursorFactory runInAutoCommitTransaction(Connection connection, Query query, BookmarkHolder bookmarkHolder,
+                                                   TransactionConfig config, boolean waitForRunResponse, long fetchSize );
 
     /**
-     * Execute the given statement in a running explicit transaction, i.e. {@link Transaction#run(Statement)}.
+     * Execute the given query in a running unmanaged transaction, i.e. {@link Transaction#run(Query)}.
      *
      * @param connection the network connection to use.
-     * @param statement the cypher to execute.
+     * @param query the cypher to execute.
      * @param tx the transaction which executes the query.
      * @param waitForRunResponse {@code true} for async query execution and {@code false} for blocking query
-     * execution. Makes returned cursor stage be chained after the RUN response arrives. Needed to have statement
+     * execution. Makes returned cursor stage be chained after the RUN response arrives. Needed to have query
      * keys populated.
+     * @param fetchSize the record fetch size for PULL message.
      * @return stage with cursor.
      */
-    StatementResultCursorFactory runInExplicitTransaction( Connection connection, Statement statement, ExplicitTransaction tx,
-            boolean waitForRunResponse );
+    ResultCursorFactory runInUnmanagedTransaction(Connection connection, Query query, UnmanagedTransaction tx, boolean waitForRunResponse,
+                                                 long fetchSize );
 
     /**
      * Returns the protocol version. It can be used for version specific error messages.

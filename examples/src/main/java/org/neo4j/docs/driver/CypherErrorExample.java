@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -21,7 +21,7 @@ package org.neo4j.docs.driver;
 // tag::cypher-error-import[]
 
 import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Transaction;
 import org.neo4j.driver.TransactionWork;
 import org.neo4j.driver.exceptions.ClientException;
@@ -56,11 +56,12 @@ public class CypherErrorExample extends BaseApplication
     {
         try
         {
-            StatementResult result = tx.run( "SELECT * FROM Employees WHERE name = $name", parameters( "name", name ) );
+            Result result = tx.run( "SELECT * FROM Employees WHERE name = $name", parameters( "name", name ) );
             return result.single().get( "employee_number" ).asInt();
         }
         catch ( ClientException ex )
         {
+            tx.rollback();
             System.err.println( ex.getMessage() );
             return -1;
         }

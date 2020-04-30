@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -33,6 +33,7 @@ import org.neo4j.driver.internal.BoltServerAddress;
 import org.neo4j.driver.internal.util.ServerVersion;
 import org.neo4j.driver.types.TypeSystem;
 
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.neo4j.driver.util.Neo4jRunner.DEFAULT_AUTH_TOKEN;
 import static org.neo4j.driver.util.Neo4jRunner.HOME_DIR;
 import static org.neo4j.driver.util.Neo4jRunner.debug;
@@ -73,11 +74,6 @@ public class DatabaseExtension implements BeforeEachCallback
     public TypeSystem typeSystem()
     {
         return driver().defaultTypeSystem();
-    }
-
-    public void restartDb()
-    {
-        runner.restartNeo4j();
     }
 
     public void forceRestartDb()
@@ -146,6 +142,9 @@ public class DatabaseExtension implements BeforeEachCallback
 
     public void ensureProcedures( String jarName ) throws IOException
     {
+        // These procedures was written against 3.x API.
+        // As graph database service API is totally changed since 4.0. These procedures are no long valid.
+        assumeTrue( version().lessThan( ServerVersion.v4_0_0 ) );
         File procedureJar = new File( HOME_DIR, "plugins/" + jarName );
         if ( !procedureJar.exists() )
         {
@@ -165,13 +164,13 @@ public class DatabaseExtension implements BeforeEachCallback
         runner.stopNeo4j();
     }
 
-    public void killDb()
-    {
-        runner.killNeo4j();
-    }
-
     public ServerVersion version()
     {
         return ServerVersion.version( driver() );
+    }
+
+    public void dumpLogs()
+    {
+        runner.dumpDebugLog();
     }
 }

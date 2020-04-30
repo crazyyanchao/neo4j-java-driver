@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -25,7 +25,7 @@ import org.neo4j.driver.Driver;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.async.AsyncSession;
 import org.neo4j.driver.async.AsyncTransaction;
-import org.neo4j.driver.async.StatementResultCursor;
+import org.neo4j.driver.async.ResultCursor;
 import org.neo4j.driver.summary.ResultSummary;
 import org.neo4j.driver.types.Node;
 
@@ -54,14 +54,14 @@ public class AsyncReadQueryInTx<C extends AbstractContext> extends AbstractAsync
         return txCommitted;
     }
 
-    private CompletionStage<ResultSummary> processRecordAndGetSummary( Record record, StatementResultCursor cursor )
+    private CompletionStage<ResultSummary> processRecordAndGetSummary( Record record, ResultCursor cursor )
     {
         if ( record != null )
         {
             Node node = record.get( 0 ).asNode();
             assertNotNull( node );
         }
-        return cursor.summaryAsync();
+        return cursor.consumeAsync();
     }
 
     private CompletionStage<Void> processSummaryAndCommit( ResultSummary summary, AsyncTransaction tx, C context )

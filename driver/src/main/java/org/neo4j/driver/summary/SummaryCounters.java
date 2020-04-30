@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -21,7 +21,7 @@ package org.neo4j.driver.summary;
 import org.neo4j.driver.util.Immutable;
 
 /**
- * Contains counters for various operations that a statement triggered.
+ * Contains counters for various operations that a query triggered.
  * @since 1.0
  */
 @Immutable
@@ -29,7 +29,7 @@ public interface SummaryCounters
 {
     /**
      * Whether there were any updates at all, eg. any of the counters are greater than 0.
-     * @return true if the statement made any updates
+     * @return true if the query made any updates
      */
     boolean containsUpdates();
 
@@ -87,4 +87,15 @@ public interface SummaryCounters
      * @return number of constraints removed from the schema.
      */
     int constraintsRemoved();
+
+    /**
+     * If the query updated the system graph in any way, this method will return true,
+     * @return true if the system graph has been updated.
+     */
+    boolean containsSystemUpdates();
+
+    /**
+     * @return the number of system updates performed by this query.
+     */
+    int systemUpdates();
 }

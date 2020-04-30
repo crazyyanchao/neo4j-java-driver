@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -27,7 +27,7 @@ import java.util.concurrent.CompletionStage;
 
 import org.neo4j.driver.AccessMode;
 import org.neo4j.driver.Driver;
-import org.neo4j.driver.reactive.RxStatementResult;
+import org.neo4j.driver.reactive.RxResult;
 import org.neo4j.driver.reactive.RxSession;
 import org.neo4j.driver.summary.ResultSummary;
 import org.neo4j.driver.types.Node;
@@ -43,7 +43,7 @@ public class RxReadQueryWithRetries<C extends AbstractContext> extends AbstractR
     public CompletionStage<Void> execute( C context )
     {
         CompletableFuture<Void> queryFinished = new CompletableFuture<>();
-        Flux.using( () -> newSession( AccessMode.READ, context ), this::processAndGetSummary, RxSession::close )
+        Flux.usingWhen( Mono.fromSupplier( () -> newSession( AccessMode.READ, context ) ), this::processAndGetSummary, RxSession::close )
                 .subscribe( summary -> {
                     queryFinished.complete( null );
                     context.readCompleted( summary );
@@ -57,9 +57,9 @@ public class RxReadQueryWithRetries<C extends AbstractContext> extends AbstractR
     private Publisher<ResultSummary> processAndGetSummary( RxSession session )
     {
         return session.readTransaction( tx -> {
-            RxStatementResult result = tx.run( "MATCH (n) RETURN n LIMIT 1" );
+            RxResult result = tx.run( "MATCH (n) RETURN n LIMIT 1" );
             Mono<Node> records = Flux.from( result.records() ).singleOrEmpty().map( record -> record.get( 0 ).asNode() );
-            Mono<ResultSummary> summaryMono = Mono.from( result.summary() ).single();
+            Mono<ResultSummary> summaryMono = Mono.from( result.consume() ).single();
             return records.then( summaryMono );
         } );
     }

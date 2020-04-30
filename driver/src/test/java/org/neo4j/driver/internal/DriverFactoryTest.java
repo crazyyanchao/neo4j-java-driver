@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -31,6 +31,7 @@ import org.neo4j.driver.AuthToken;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Config;
 import org.neo4j.driver.Driver;
+import org.neo4j.driver.Logging;
 import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.internal.async.LeakLoggingNetworkSession;
 import org.neo4j.driver.internal.async.NetworkSession;
@@ -42,6 +43,7 @@ import org.neo4j.driver.internal.metrics.MetricsProvider;
 import org.neo4j.driver.internal.retry.RetryLogic;
 import org.neo4j.driver.internal.retry.RetrySettings;
 import org.neo4j.driver.internal.security.SecurityPlan;
+import org.neo4j.driver.internal.security.SecurityPlanImpl;
 import org.neo4j.driver.internal.spi.Connection;
 import org.neo4j.driver.internal.spi.ConnectionPool;
 import org.neo4j.driver.internal.spi.ConnectionProvider;
@@ -157,9 +159,11 @@ class DriverFactoryTest
         // Given
         Config config = mock( Config.class );
         when( config.isMetricsEnabled() ).thenReturn( true );
+        when( config.logging() ).thenReturn( Logging.none() );
         // When
         MetricsProvider provider = DriverFactory.createDriverMetrics( config, Clock.SYSTEM );
         // Then
+        assertThat( provider.isMetricsEnabled(), is( true ) );
         assertThat( provider instanceof InternalMetricsProvider, is( true ) );
     }
 
@@ -171,7 +175,7 @@ class DriverFactoryTest
     private Driver createDriver( String uri, DriverFactory driverFactory, Config config )
     {
         AuthToken auth = AuthTokens.none();
-        return driverFactory.newInstance( URI.create( uri ), auth, RoutingSettings.DEFAULT, RetrySettings.DEFAULT, config );
+        return driverFactory.newInstance( URI.create( uri ), auth, RoutingSettings.DEFAULT, RetrySettings.DEFAULT, config, SecurityPlanImpl.insecure() );
     }
 
     private static ConnectionPool connectionPoolMock()
@@ -259,7 +263,7 @@ class DriverFactoryTest
         }
 
         @Override
-        protected Bootstrap createBootstrap()
+        protected Bootstrap createBootstrap( int ignored )
         {
             return BootstrapFactory.newBootstrap( 1 );
         }

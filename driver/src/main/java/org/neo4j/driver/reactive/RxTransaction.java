@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -27,9 +27,9 @@ import org.neo4j.driver.Transaction;
  * @see Transaction
  * @see RxSession
  * @see Publisher
- * @since 2.0
+ * @since 4.0
  */
-public interface RxTransaction extends RxStatementRunner
+public interface RxTransaction extends RxQueryRunner
 {
     /**
      * Commits the transaction.

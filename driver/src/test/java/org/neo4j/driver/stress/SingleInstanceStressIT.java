@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.neo4j.driver.AuthToken;
+import org.neo4j.driver.Config;
 import org.neo4j.driver.summary.ResultSummary;
 import org.neo4j.driver.util.DatabaseExtension;
 import org.neo4j.driver.util.ParallelizableIT;
@@ -50,6 +51,12 @@ class SingleInstanceStressIT extends AbstractStressTestBase<SingleInstanceStress
     AuthToken authToken()
     {
         return neo4j.authToken();
+    }
+
+    @Override
+    Config.ConfigBuilder config( Config.ConfigBuilder builder )
+    {
+        return builder.withoutEncryption();
     }
 
     @Override
@@ -113,5 +120,11 @@ class SingleInstanceStressIT extends AbstractStressTestBase<SingleInstanceStress
         {
             return readQueries.get();
         }
+    }
+
+    @Override
+    void dumpLogs()
+    {
+        neo4j.dumpLogs();
     }
 }

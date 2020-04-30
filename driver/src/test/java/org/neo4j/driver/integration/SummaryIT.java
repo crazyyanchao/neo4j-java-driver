@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,23 +18,27 @@
  */
 package org.neo4j.driver.integration;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import org.neo4j.driver.internal.util.ServerVersion;
-import org.neo4j.driver.StatementResult;
+import org.neo4j.driver.Session;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Value;
 import org.neo4j.driver.Values;
+import org.neo4j.driver.internal.util.EnabledOnNeo4jWith;
+import org.neo4j.driver.internal.util.Neo4jFeature;
 import org.neo4j.driver.summary.Notification;
 import org.neo4j.driver.summary.Plan;
 import org.neo4j.driver.summary.ProfiledPlan;
 import org.neo4j.driver.summary.ResultSummary;
-import org.neo4j.driver.summary.StatementType;
+import org.neo4j.driver.summary.QueryType;
+import org.neo4j.driver.util.DatabaseExtension;
 import org.neo4j.driver.util.ParallelizableIT;
-import org.neo4j.driver.util.SessionExtension;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
@@ -45,22 +49,40 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.neo4j.driver.SessionConfig.forDatabase;
 
 @ParallelizableIT
 class SummaryIT
 {
     @RegisterExtension
-    static final SessionExtension session = new SessionExtension();
+    static final DatabaseExtension neo4j = new DatabaseExtension();
+    private Session session;
+
+    @BeforeEach
+    void setup()
+    {
+        session = neo4j.driver().session();
+    }
+
+    @AfterEach
+    void tearDown()
+    {
+        if ( session != null && session.isOpen() )
+        {
+            session.close();
+        }
+        session = null;
+    }
 
     @Test
     void shouldContainBasicMetadata()
     {
         // Given
-        Value statementParameters = Values.parameters( "limit", 10 );
-        String statementText = "UNWIND [1, 2, 3, 4] AS n RETURN n AS number LIMIT {limit}";
+        Value parameters = Values.parameters( "limit", 10 );
+        String query = "UNWIND [1, 2, 3, 4] AS n RETURN n AS number LIMIT $limit";
 
         // When
-        StatementResult result = session.run( statementText, statementParameters );
+        Result result = session.run( query, parameters );
 
         // Then
         assertTrue( result.hasNext() );
@@ -69,10 +91,9 @@ class SummaryIT
         ResultSummary summary = result.consume();
 
         // Then
-        assertFalse( result.hasNext() );
-        assertThat( summary.statementType(), equalTo( StatementType.READ_ONLY ) );
-        assertThat( summary.statement().text(), equalTo( statementText ) );
-        assertThat( summary.statement().parameters(), equalTo( statementParameters ) );
+        assertThat( summary.queryType(), equalTo( QueryType.READ_ONLY ) );
+        assertThat( summary.query().text(), equalTo( query ) );
+        assertThat( summary.query().parameters(), equalTo( parameters ) );
         assertFalse( summary.hasPlan() );
         assertFalse( summary.hasProfile() );
         assertThat( summary, equalTo( result.consume() ) );
@@ -114,12 +135,24 @@ class SummaryIT
     }
 
     @Test
-    void shouldContainCorrectStatementType()
+    @EnabledOnNeo4jWith( Neo4jFeature.BOLT_V4 )
+    void shouldGetSystemUpdates() throws Throwable
     {
-        assertThat( session.run("MATCH (n) RETURN 1").consume().statementType(), equalTo( StatementType.READ_ONLY ));
-        assertThat( session.run("CREATE (n)").consume().statementType(), equalTo( StatementType.WRITE_ONLY ));
-        assertThat( session.run("CREATE (n) RETURN (n)").consume().statementType(), equalTo( StatementType.READ_WRITE ));
-        assertThat( session.run("CREATE INDEX ON :User(p)").consume().statementType(), equalTo( StatementType.SCHEMA_WRITE ));
+        try ( Session session = neo4j.driver().session( forDatabase( "system" ) ) )
+        {
+            Result result = session.run( "CREATE USER foo SET PASSWORD 'bar'" );
+            assertThat( result.consume().counters().containsUpdates(), equalTo( false ) );
+            assertThat( result.consume().counters().containsSystemUpdates(), equalTo( true ) );
+        }
+    }
+
+    @Test
+    void shouldContainCorrectQueryType()
+    {
+        assertThat( session.run("MATCH (n) RETURN 1").consume().queryType(), equalTo( QueryType.READ_ONLY ));
+        assertThat( session.run("CREATE (n)").consume().queryType(), equalTo( QueryType.WRITE_ONLY ));
+        assertThat( session.run("CREATE (n) RETURN (n)").consume().queryType(), equalTo( QueryType.READ_WRITE ));
+        assertThat( session.run("CREATE INDEX ON :User(p)").consume().queryType(), equalTo( QueryType.SCHEMA_WRITE ));
     }
 
     @Test
@@ -151,6 +184,7 @@ class SummaryIT
 
         ProfiledPlan profile = summary.profile();
 
+        assertEquals( 0, profile.time() );
         assertEquals( 0, profile.dbHits() );
         assertEquals( 1, profile.records() );
     }
@@ -159,7 +193,7 @@ class SummaryIT
     void shouldContainNotifications()
     {
         // When
-        ResultSummary summary = session.run( "EXPLAIN MATCH (n), (m) RETURN n, m" ).consume();
+        ResultSummary summary = session.run( "EXPLAIN MATCH (n:ThisLabelDoesNotExist) RETURN n" ).consume();
 
         // Then
         List<Notification> notifications = summary.notifications();

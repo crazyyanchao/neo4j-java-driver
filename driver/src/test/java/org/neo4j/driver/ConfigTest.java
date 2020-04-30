@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -19,18 +19,23 @@
 package org.neo4j.driver;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.File;
 import java.util.concurrent.TimeUnit;
 
 import org.neo4j.driver.net.ServerAddressResolver;
 
+import static org.hamcrest.CoreMatchers.equalTo;
+import static org.junit.Assert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.neo4j.driver.internal.handlers.pulln.FetchSizeUtil.DEFAULT_FETCH_SIZE;
 
 class ConfigTest
 {
@@ -130,7 +135,7 @@ class ConfigTest
     void shouldHaveDefaultConnectionTimeout()
     {
         Config defaultConfig = Config.defaultConfig();
-        assertEquals( TimeUnit.SECONDS.toMillis( 5 ), defaultConfig.connectionTimeoutMillis() );
+        assertEquals( TimeUnit.SECONDS.toMillis( 30 ), defaultConfig.connectionTimeoutMillis() );
     }
 
     @Test
@@ -272,5 +277,42 @@ class ConfigTest
     void shouldNotAllowNullResolver()
     {
         assertThrows( NullPointerException.class, () -> Config.builder().withResolver( null ) );
+    }
+
+    @Test
+    void shouldDefaultToDefaultFetchSize() throws Throwable
+    {
+        Config config = Config.defaultConfig();
+        assertEquals( DEFAULT_FETCH_SIZE, config.fetchSize() );
+    }
+
+    @ParameterizedTest
+    @ValueSource( longs = {100, 1, 1000, Long.MAX_VALUE, -1} )
+    void shouldChangeFetchSize( long value ) throws Throwable
+    {
+        Config config = Config.builder().withFetchSize( value ).build();
+        assertThat( config.fetchSize(), equalTo( value ) );
+    }
+
+    @ParameterizedTest
+    @ValueSource( longs = {0, -100, -2} )
+    void shouldErrorWithIllegalFetchSize( long value ) throws Throwable
+    {
+        assertThrows( IllegalArgumentException.class, () -> Config.builder().withFetchSize( value ).build() );
+    }
+
+    @ParameterizedTest
+    @ValueSource( ints = {100, 1, 1000, Integer.MAX_VALUE} )
+    void shouldChangeEventLoopThreads( int value ) throws Throwable
+    {
+        Config config = Config.builder().withEventLoopThreads( value ).build();
+        assertThat( config.eventLoopThreads(), equalTo( value ) );
+    }
+
+    @ParameterizedTest
+    @ValueSource( ints = {0, -100, -2} )
+    void shouldErrorWithIllegalEventLoopThreadsSize( int value ) throws Throwable
+    {
+        assertThrows( IllegalArgumentException.class, () -> Config.builder().withEventLoopThreads( value ).build() );
     }
 }

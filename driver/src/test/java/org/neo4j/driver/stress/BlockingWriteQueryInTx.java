@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -21,7 +21,7 @@ package org.neo4j.driver.stress;
 import org.neo4j.driver.AccessMode;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Transaction;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -39,7 +39,7 @@ public class BlockingWriteQueryInTx<C extends AbstractContext> extends AbstractB
     @Override
     public void execute( C context )
     {
-        StatementResult result = null;
+        Result result = null;
         Throwable txError = null;
 
         try ( Session session = newSession( AccessMode.WRITE, context ) )
@@ -47,7 +47,7 @@ public class BlockingWriteQueryInTx<C extends AbstractContext> extends AbstractB
             try ( Transaction tx = beginTransaction( session, context ) )
             {
                 result = tx.run( "CREATE ()" );
-                tx.success();
+                tx.commit();
             }
 
             context.setBookmark( session.lastBookmark() );
@@ -63,7 +63,7 @@ public class BlockingWriteQueryInTx<C extends AbstractContext> extends AbstractB
 
         if ( txError == null && result != null )
         {
-            assertEquals( 1, result.summary().counters().nodesCreated() );
+            assertEquals( 1, result.consume().counters().nodesCreated() );
             context.nodeCreated();
         }
     }

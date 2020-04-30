@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -17,15 +17,15 @@
  * limitations under the License.
  */
 package org.neo4j.docs.driver;
-
+// tag::config-connection-pool-import[]
 import java.util.concurrent.TimeUnit;
 
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Config;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
-import org.neo4j.driver.StatementResult;
-
+import org.neo4j.driver.Result;
+// end::config-connection-pool-import[]
 public class ConfigConnectionPoolExample  implements AutoCloseable
 {
     private final Driver driver;
@@ -51,7 +51,7 @@ public class ConfigConnectionPoolExample  implements AutoCloseable
 
     public boolean canConnect()
     {
-        StatementResult result = driver.session().run( "RETURN 1" );
+        Result result = driver.session().run( "RETURN 1" );
         return result.single().get( 0 ).asInt() == 1;
     }
 }

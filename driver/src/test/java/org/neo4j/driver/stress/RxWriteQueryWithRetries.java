@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -19,6 +19,7 @@
 package org.neo4j.driver.stress;
 
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -29,6 +30,8 @@ import org.neo4j.driver.internal.util.Futures;
 import org.neo4j.driver.reactive.RxSession;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class RxWriteQueryWithRetries<C extends AbstractContext> extends AbstractRxQuery<C>
 {
@@ -44,25 +47,26 @@ public class RxWriteQueryWithRetries<C extends AbstractContext> extends Abstract
     public CompletionStage<Void> execute( C context )
     {
         CompletableFuture<Void> queryFinished = new CompletableFuture<>();
-        Flux.using( () -> newSession( AccessMode.READ, context ),
-                session -> session.writeTransaction( tx -> tx.run( "CREATE ()" ).summary() ), RxSession::close )
+        Flux.usingWhen( Mono.fromSupplier( () -> newSession( AccessMode.WRITE, context ) ),
+                session -> session.writeTransaction( tx -> tx.run( "CREATE ()" ).consume() ), RxSession::close )
                 .subscribe( summary -> {
-                    queryFinished.complete( null );
                     assertEquals( 1, summary.counters().nodesCreated() );
                     context.nodeCreated();
-                }, error -> {
                     queryFinished.complete( null );
-                    handleError( Futures.completionExceptionCause( error ), context );
-                } );
+                }, error -> handleError( Futures.completionExceptionCause( error ), context, queryFinished ) );
 
         return queryFinished;
     }
 
-    private void handleError( Throwable error, C context )
+    private void handleError( Throwable error, C context, CompletableFuture<Void> queryFinished )
     {
         if ( !stressTest.handleWriteFailure( error, context ) )
         {
-            throw new RuntimeException( error );
+            queryFinished.completeExceptionally( error );
+        }
+        else
+        {
+            queryFinished.complete( null );
         }
     }
 }

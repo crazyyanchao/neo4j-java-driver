@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,23 +18,28 @@
  */
 package org.neo4j.driver;
 
+import org.reactivestreams.Subscription;
+
 import java.io.File;
 import java.net.InetAddress;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 
+import org.neo4j.driver.async.AsyncSession;
 import org.neo4j.driver.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.exceptions.SessionExpiredException;
 import org.neo4j.driver.exceptions.TransientException;
+import org.neo4j.driver.internal.SecuritySettings;
 import org.neo4j.driver.internal.async.pool.PoolSettings;
 import org.neo4j.driver.internal.cluster.RoutingSettings;
+import org.neo4j.driver.internal.handlers.pulln.FetchSizeUtil;
 import org.neo4j.driver.internal.retry.RetrySettings;
 import org.neo4j.driver.net.ServerAddressResolver;
+import org.neo4j.driver.reactive.RxSession;
 import org.neo4j.driver.util.Immutable;
 import org.neo4j.driver.util.Resource;
 
-import static org.neo4j.driver.Config.TrustStrategy.trustSystemCertificates;
 import static org.neo4j.driver.Logging.javaUtilLogging;
 
 /**
@@ -80,21 +85,19 @@ public class Config
     private final long maxConnectionLifetimeMillis;
     private final long connectionAcquisitionTimeoutMillis;
 
-    /** Indicator for encrypted traffic */
-    private final boolean encrypted;
-
-    /** Strategy for how to trust encryption certificate */
-    private final TrustStrategy trustStrategy;
+    private final SecuritySettings securitySettings;
 
     private final int routingFailureLimit;
     private final long routingRetryDelayMillis;
-    private long routingTablePurgeDelayMillis;
+    private final long fetchSize;
+    private final long routingTablePurgeDelayMillis;
 
     private final int connectionTimeoutMillis;
     private final RetrySettings retrySettings;
     private final ServerAddressResolver resolver;
 
     private final boolean isMetricsEnabled;
+    private final int eventLoopThreads;
 
     private Config( ConfigBuilder builder )
     {
@@ -106,15 +109,17 @@ public class Config
         this.maxConnectionPoolSize = builder.maxConnectionPoolSize;
         this.connectionAcquisitionTimeoutMillis = builder.connectionAcquisitionTimeoutMillis;
 
-        this.encrypted = builder.encrypted;
-        this.trustStrategy = builder.trustStrategy;
+        this.securitySettings = builder.securitySettingsBuilder.build();
+
         this.routingFailureLimit = builder.routingFailureLimit;
         this.routingRetryDelayMillis = builder.routingRetryDelayMillis;
         this.connectionTimeoutMillis = builder.connectionTimeoutMillis;
         this.routingTablePurgeDelayMillis = builder.routingTablePurgeDelayMillis;
         this.retrySettings = builder.retrySettings;
         this.resolver = builder.resolver;
+        this.fetchSize = builder.fetchSize;
 
+        this.eventLoopThreads = builder.eventLoopThreads;
         this.isMetricsEnabled = builder.isMetricsEnabled;
     }
 
@@ -181,7 +186,7 @@ public class Config
      */
     public boolean encrypted()
     {
-        return encrypted;
+        return securitySettings.encrypted();
     }
 
     /**
@@ -189,7 +194,7 @@ public class Config
      */
     public TrustStrategy trustStrategy()
     {
-        return trustStrategy;
+        return securitySettings.trustStrategy();
     }
 
     /**
@@ -220,6 +225,14 @@ public class Config
         return EMPTY;
     }
 
+    /**
+     * @return the security setting to use when creating connections.
+     */
+    SecuritySettings securitySettings()
+    {
+        return securitySettings;
+    }
+
     RoutingSettings routingSettings()
     {
         return new RoutingSettings( routingFailureLimit, routingRetryDelayMillis, routingTablePurgeDelayMillis );
@@ -228,6 +241,16 @@ public class Config
     RetrySettings retrySettings()
     {
         return retrySettings;
+    }
+
+    public long fetchSize()
+    {
+        return fetchSize;
+    }
+
+    public int eventLoopThreads()
+    {
+        return eventLoopThreads;
     }
 
     /**
@@ -249,16 +272,16 @@ public class Config
         private long idleTimeBeforeConnectionTest = PoolSettings.DEFAULT_IDLE_TIME_BEFORE_CONNECTION_TEST;
         private long maxConnectionLifetimeMillis = PoolSettings.DEFAULT_MAX_CONNECTION_LIFETIME;
         private long connectionAcquisitionTimeoutMillis = PoolSettings.DEFAULT_CONNECTION_ACQUISITION_TIMEOUT;
-        private boolean encrypted = false;
-        private TrustStrategy trustStrategy = trustSystemCertificates();
+        private final SecuritySettings.SecuritySettingsBuilder securitySettingsBuilder = new SecuritySettings.SecuritySettingsBuilder();
         private int routingFailureLimit = RoutingSettings.DEFAULT.maxRoutingFailures();
         private long routingRetryDelayMillis = RoutingSettings.DEFAULT.retryTimeoutDelay();
         private long routingTablePurgeDelayMillis = RoutingSettings.DEFAULT.routingTablePurgeDelayMs();
-        private int connectionTimeoutMillis = (int) TimeUnit.SECONDS.toMillis( 5 );
+        private int connectionTimeoutMillis = (int) TimeUnit.SECONDS.toMillis( 30 );
         private RetrySettings retrySettings = RetrySettings.DEFAULT;
         private ServerAddressResolver resolver;
         private boolean isMetricsEnabled = false;
-
+        private long fetchSize = FetchSizeUtil.DEFAULT_FETCH_SIZE;
+        private int eventLoopThreads = 0;
 
         private ConfigBuilder() {}
 
@@ -423,7 +446,7 @@ public class Config
          */
         public ConfigBuilder withEncryption()
         {
-            this.encrypted = true;
+            securitySettingsBuilder.withEncryption();
             return this;
         }
 
@@ -433,7 +456,7 @@ public class Config
          */
         public ConfigBuilder withoutEncryption()
         {
-            this.encrypted = false;
+            securitySettingsBuilder.withoutEncryption();
             return this;
         }
 
@@ -453,7 +476,7 @@ public class Config
          */
         public ConfigBuilder withTrustStrategy( TrustStrategy trustStrategy )
         {
-            this.trustStrategy = trustStrategy;
+            securitySettingsBuilder.withTrustStrategy( trustStrategy );
             return this;
         }
 
@@ -567,6 +590,26 @@ public class Config
         }
 
         /**
+         * Specify how many records to fetch in each batch.
+         * This config is only valid when the driver is used with servers that support Bolt V4 (Server version 4.0 and later).
+         *
+         * Bolt V4 enables pulling records in batches to allow client to take control of data population and apply back pressure to server.
+         * This config specifies the default fetch size for all query runs using {@link Session} and {@link AsyncSession}.
+         * By default, the value is set to {@code 1000}.
+         * Use {@code -1} to disables back pressure and config client to pull all records at once after each run.
+         *
+         * This config only applies to run result obtained via {@link Session} and {@link AsyncSession}.
+         * As with {@link RxSession}, the batch size is provided via {@link Subscription#request(long)} instead.
+         * @param size the default record fetch size when pulling records in batches using Bolt V4.
+         * @return this builder
+         */
+        public ConfigBuilder withFetchSize( long size )
+        {
+            this.fetchSize = FetchSizeUtil.assertValidFetchSize( size );
+            return this;
+        }
+
+        /**
          * Specify socket connection timeout.
          * <p>
          * A timeout of zero is treated as an infinite timeout and will be bound by the timeout configured on the
@@ -575,7 +618,7 @@ public class Config
          * Timeout value should be greater or equal to zero and represent a valid {@code int} value when converted to
          * {@link TimeUnit#MILLISECONDS milliseconds}.
          * <p>
-         * The default value of this parameter is {@code 5 SECONDS}.
+         * The default value of this parameter is {@code 30 SECONDS}.
          *
          * @param value the timeout duration
          * @param unit the unit in which duration is given
@@ -664,6 +707,23 @@ public class Config
         public ConfigBuilder withoutDriverMetrics()
         {
             this.isMetricsEnabled = false;
+            return this;
+        }
+
+        /**
+         * Configure the event loop thread count. This specifies how many threads the driver can use to handle network I/O events
+         * and user's events in driver's I/O threads. By default, 2 * NumberOfProcessors amount of threads will be used instead.
+         * @param size the thread count.
+         * @return this builder.
+         * @throws IllegalArgumentException if the value of the size is set to a number that is less than 1.
+         */
+        public ConfigBuilder withEventLoopThreads( int size )
+        {
+            if ( size < 1 )
+            {
+                throw new IllegalArgumentException( String.format( "The event loop thread may not be smaller than 1, but was %d.", size ) );
+            }
+            this.eventLoopThreads = size;
             return this;
         }
 

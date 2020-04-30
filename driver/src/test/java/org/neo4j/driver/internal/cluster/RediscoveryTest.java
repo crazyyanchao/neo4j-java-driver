@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -20,6 +20,7 @@ package org.neo4j.driver.internal.cluster;
 
 import io.netty.util.concurrent.GlobalEventExecutor;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -27,10 +28,12 @@ import java.util.Map;
 
 import org.neo4j.driver.Logger;
 import org.neo4j.driver.exceptions.AuthenticationException;
+import org.neo4j.driver.exceptions.DiscoveryException;
 import org.neo4j.driver.exceptions.ProtocolException;
 import org.neo4j.driver.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.exceptions.SessionExpiredException;
 import org.neo4j.driver.internal.BoltServerAddress;
+import org.neo4j.driver.internal.DatabaseName;
 import org.neo4j.driver.internal.InternalBookmark;
 import org.neo4j.driver.internal.spi.Connection;
 import org.neo4j.driver.internal.spi.ConnectionPool;
@@ -43,20 +46,22 @@ import static java.util.Collections.emptySet;
 import static java.util.Collections.singletonMap;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.hamcrest.CoreMatchers.containsString;
+import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.startsWith;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.neo4j.driver.internal.DatabaseNameUtil.defaultDatabase;
 import static org.neo4j.driver.internal.InternalBookmark.empty;
 import static org.neo4j.driver.internal.logging.DevNullLogger.DEV_NULL_LOGGER;
-import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.ABSENT_DB_NAME;
 import static org.neo4j.driver.internal.util.ClusterCompositionUtil.A;
 import static org.neo4j.driver.internal.util.ClusterCompositionUtil.B;
 import static org.neo4j.driver.internal.util.ClusterCompositionUtil.C;
@@ -177,7 +182,9 @@ class RediscoveryTest
         ClusterComposition composition = await( rediscovery.lookupClusterComposition( table, pool, empty() ) );
         assertEquals( validComposition, composition );
 
-        verify( logger ).warn( String.format( "Failed to update routing table with server '%s'.", B ), protocolError );
+        ArgumentCaptor<DiscoveryException> argument = ArgumentCaptor.forClass( DiscoveryException.class );
+        verify( logger ).warn( anyString(), argument.capture() );
+        assertThat( argument.getValue().getCause(), equalTo( protocolError ) );
     }
 
     @Test
@@ -259,12 +266,15 @@ class RediscoveryTest
     }
 
     @Test
-    void shouldFailWhenNoRoutersRespond()
+    void shouldRecordAllErrorsWhenNoRouterRespond()
     {
         Map<BoltServerAddress,Object> responsesByAddress = new HashMap<>();
-        responsesByAddress.put( A, new ServiceUnavailableException( "Hi!" ) ); // first -> non-fatal failure
-        responsesByAddress.put( B, new SessionExpiredException( "Hi!" ) ); // second -> non-fatal failure
-        responsesByAddress.put( C, new IOException( "Hi!" ) ); // third -> non-fatal failure
+        ServiceUnavailableException first = new ServiceUnavailableException( "Hi!" );
+        responsesByAddress.put( A, first ); // first -> non-fatal failure
+        SessionExpiredException second = new SessionExpiredException( "Hi!" );
+        responsesByAddress.put( B, second ); // second -> non-fatal failure
+        IOException third = new IOException( "Hi!" );
+        responsesByAddress.put( C, third ); // third -> non-fatal failure
 
         ClusterCompositionProvider compositionProvider = compositionProviderMock( responsesByAddress );
         Rediscovery rediscovery = newRediscovery( A, compositionProvider, mock( ServerAddressResolver.class ) );
@@ -272,6 +282,10 @@ class RediscoveryTest
 
         ServiceUnavailableException e = assertThrows( ServiceUnavailableException.class, () -> await( rediscovery.lookupClusterComposition( table, pool, empty() ) ) );
         assertThat( e.getMessage(), containsString( "Could not perform discovery" ) );
+        assertThat( e.getSuppressed().length, equalTo( 3 ) );
+        assertThat( e.getSuppressed()[0].getCause(), equalTo( first ) );
+        assertThat( e.getSuppressed()[1].getCause(), equalTo( second ) );
+        assertThat( e.getSuppressed()[2].getCause(), equalTo( third ) );
     }
 
     @Test
@@ -289,7 +303,7 @@ class RediscoveryTest
         ClusterCompositionProvider compositionProvider = compositionProviderMock( responsesByAddress );
         ServerAddressResolver resolver = resolverMock( initialRouter, initialRouter );
         Rediscovery rediscovery = newRediscovery( initialRouter, compositionProvider, resolver );
-        RoutingTable table = new ClusterRoutingTable( ABSENT_DB_NAME, new FakeClock() );
+        RoutingTable table = new ClusterRoutingTable( defaultDatabase(), new FakeClock() );
         table.update( noWritersComposition );
 
         ClusterComposition composition2 = await( rediscovery.lookupClusterComposition( table, pool, empty() ) );
@@ -412,7 +426,7 @@ class RediscoveryTest
             Map<BoltServerAddress,Object> responsesByAddress )
     {
         ClusterCompositionProvider provider = mock( ClusterCompositionProvider.class );
-        when( provider.getClusterComposition( any( Connection.class ), any( String.class ), any( InternalBookmark.class ) ) ).then( invocation ->
+        when( provider.getClusterComposition( any( Connection.class ), any( DatabaseName.class ), any( InternalBookmark.class ) ) ).then( invocation ->
         {
             Connection connection = invocation.getArgument( 0 );
             BoltServerAddress address = connection.serverAddress();
@@ -466,7 +480,7 @@ class RediscoveryTest
         AddressSet addressSet = new AddressSet();
         addressSet.update( asOrderedSet( routers ) );
         when( routingTable.routers() ).thenReturn( addressSet );
-        when( routingTable.database() ).thenReturn( ABSENT_DB_NAME );
+        when( routingTable.database() ).thenReturn( defaultDatabase() );
         when( routingTable.preferInitialRouter() ).thenReturn( preferInitialRouter );
         return routingTable;
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -21,8 +21,6 @@ package org.neo4j.docs.driver;
 // tag::transaction-function-import[]
 
 import org.neo4j.driver.Session;
-import org.neo4j.driver.Transaction;
-import org.neo4j.driver.TransactionWork;
 
 import static org.neo4j.driver.Values.parameters;
 // end::transaction-function-import[]
@@ -39,22 +37,11 @@ public class TransactionFunctionExample extends BaseApplication
     {
         try ( Session session = driver.session() )
         {
-            session.writeTransaction( new TransactionWork<Integer>()
-            {
-                @Override
-                public Integer execute( Transaction tx )
-                {
-                    return createPersonNode( tx, name );
-                }
+            session.writeTransaction( tx -> {
+                tx.run( "CREATE (a:Person {name: $name})", parameters( "name", name ) );
+                return 1;
             } );
         }
     }
-
-    private static int createPersonNode( Transaction tx, String name )
-    {
-        tx.run( "CREATE (a:Person {name: $name})", parameters( "name", name ) );
-        return 1;
-    }
     // end::transaction-function[]
-
 }

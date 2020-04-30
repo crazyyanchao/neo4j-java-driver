@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -19,13 +19,18 @@
 package org.neo4j.driver.internal.async;
 
 import org.neo4j.driver.AccessMode;
-import org.neo4j.driver.internal.InternalBookmark;
+import org.neo4j.driver.Bookmark;
+import org.neo4j.driver.internal.DatabaseName;
+import org.neo4j.driver.internal.spi.ConnectionProvider;
 
+/**
+ * Describes what kind of connection to return by {@link ConnectionProvider}
+ */
 public interface ConnectionContext
 {
-    String databaseName();
+    DatabaseName databaseName();
 
     AccessMode mode();
 
-    InternalBookmark rediscoveryBookmark();
+    Bookmark rediscoveryBookmark();
 }

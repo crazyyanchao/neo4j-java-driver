@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,6 +18,7 @@
  */
 package org.neo4j.driver.internal.util;
 
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -25,6 +26,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 
 import org.neo4j.driver.internal.async.connection.EventLoopGroupFactory;
 
@@ -45,9 +47,27 @@ public final class Futures
         return (CompletableFuture) COMPLETED_WITH_NULL;
     }
 
+    public static <T> CompletableFuture<T> completeWithNullIfNoError( CompletableFuture<T> future, Throwable error )
+    {
+        if ( error != null )
+        {
+            future.completeExceptionally( error );
+        }
+        else
+        {
+            future.complete( null );
+        }
+        return future;
+    }
+
     public static <T> CompletionStage<T> asCompletionStage( io.netty.util.concurrent.Future<T> future )
     {
         CompletableFuture<T> result = new CompletableFuture<>();
+        return asCompletionStage( future, result );
+    }
+
+    public static <T> CompletionStage<T> asCompletionStage( io.netty.util.concurrent.Future<T> future, CompletableFuture<T> result )
+    {
         if ( future.isCancelled() )
         {
             result.cancel( true );
@@ -199,6 +219,52 @@ public final class Futures
         else
         {
             return null;
+        }
+    }
+
+    /**
+     * Given a future, if the future completes successfully then return a new completed future with the completed value.
+     * Otherwise if the future completes with an error, then this method first saves the error in the error recorder, and then continues with the onErrorAction.
+     * @param future the future.
+     * @param errorRecorder saves error if the given future completes with an error.
+     * @param onErrorAction continues the future with this action if the future completes with an error.
+     * @param <T> type
+     * @return a new completed future with the same completed value if the given future completes successfully, otherwise continues with the onErrorAction.
+     */
+    @SuppressWarnings( "ThrowableNotThrown" )
+    public static <T> CompletableFuture<T> onErrorContinue( CompletableFuture<T> future, Throwable errorRecorder,
+            Function<Throwable,? extends CompletionStage<T>> onErrorAction )
+    {
+        Objects.requireNonNull( future );
+        return future.handle( ( value, error ) -> {
+            if ( error != null )
+            {
+                // record error
+                Futures.combineErrors( errorRecorder, error );
+                return new CompletionResult<T>( null, error );
+            }
+            return new CompletionResult<>( value, null );
+        } ).thenCompose( result -> {
+            if ( result.value != null )
+            {
+                return completedFuture( result.value );
+            }
+            else
+            {
+                return onErrorAction.apply( result.error );
+            }
+        } );
+    }
+
+    private static class CompletionResult<T>
+    {
+        T value;
+        Throwable error;
+
+        CompletionResult( T value, Throwable error )
+        {
+            this.value = value;
+            this.error = error;
         }
     }
 

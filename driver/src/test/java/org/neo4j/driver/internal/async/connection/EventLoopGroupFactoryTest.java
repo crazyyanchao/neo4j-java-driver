@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -60,13 +60,6 @@ class EventLoopGroupFactoryTest
         int threadCount = 2;
         eventLoopGroup = EventLoopGroupFactory.newEventLoopGroup( threadCount );
         assertEquals( threadCount, count( eventLoopGroup ) );
-        assertThat( eventLoopGroup, instanceOf( NioEventLoopGroup.class ) );
-    }
-
-    @Test
-    void shouldCreateEventLoopGroup()
-    {
-        eventLoopGroup = EventLoopGroupFactory.newEventLoopGroup();
         assertThat( eventLoopGroup, instanceOf( NioEventLoopGroup.class ) );
     }
 

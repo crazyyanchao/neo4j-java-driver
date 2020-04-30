@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,30 +18,33 @@
  */
 package org.neo4j.driver.integration;
 
+import org.hamcrest.BaseMatcher;
+import org.hamcrest.Description;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+
+import java.util.UUID;
 
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.Transaction;
 import org.neo4j.driver.exceptions.ClientException;
-import org.neo4j.driver.internal.Bookmark;
+import org.neo4j.driver.Bookmark;
 import org.neo4j.driver.internal.util.DisabledOnNeo4jWith;
 import org.neo4j.driver.internal.util.EnabledOnNeo4jWith;
 import org.neo4j.driver.internal.util.Neo4jFeature;
 import org.neo4j.driver.util.ParallelizableIT;
 import org.neo4j.driver.util.SessionExtension;
 
-import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.neo4j.driver.SessionConfig.builder;
 import static org.neo4j.driver.internal.InternalBookmark.parse;
-import static org.neo4j.driver.internal.util.BookmarkUtils.assertBookmarkContainsSingleValue;
-import static org.neo4j.driver.internal.util.BookmarkUtils.assertBookmarkIsEmpty;
-import static org.neo4j.driver.internal.util.BookmarkUtils.assertBookmarksContainsSingleUniqueValues;
+import static org.neo4j.driver.internal.util.BookmarkUtil.assertBookmarkContainsSingleValue;
+import static org.neo4j.driver.internal.util.BookmarkUtil.assertBookmarkIsEmpty;
+import static org.neo4j.driver.internal.util.BookmarkUtil.assertBookmarksContainsSingleUniqueValues;
 
 @ParallelizableIT
 class BookmarkIT
@@ -84,8 +87,26 @@ class BookmarkIT
         createNodeInTx( session );
 
         // Then
-        assertBookmarkContainsSingleValue( session.lastBookmark(), startsWith( "neo4j:" ) );
-        assertBookmarkContainsSingleValue( session.lastBookmark(), not( startsWith( "neo4j:bookmark:v1:tx" ) ) );
+        assertBookmarkContainsSingleValue( session.lastBookmark(), new BaseMatcher<String>()
+        {
+            @Override
+            public boolean matches( Object item )
+            {
+                if ( item instanceof String )
+                {
+                    String bookmark = (String) item;
+                    String[] split = bookmark.split( ":" );
+                    return split.length == 2 && isUuid( split[0] ) && isNumeric( split[1] );
+                }
+                return false;
+            }
+
+            @Override
+            public void describeTo( Description description )
+            {
+                description.appendText( "Expecting a bookmark with format 'database_uuid:tx_id'" );
+            }
+        } );
     }
 
     @Test
@@ -112,7 +133,7 @@ class BookmarkIT
         try ( Transaction tx = session.beginTransaction() )
         {
             tx.run( "CREATE (a:Person)" );
-            tx.failure();
+            tx.rollback();
         }
 
         assertEquals( bookmark, session.lastBookmark() );
@@ -130,9 +151,8 @@ class BookmarkIT
 
         Transaction tx = session.beginTransaction();
         tx.run( "RETURN" );
-        tx.success();
 
-        assertThrows( ClientException.class, tx::close );
+        assertThrows( ClientException.class, tx::commit );
         assertEquals( bookmark, session.lastBookmark() );
     }
 
@@ -210,7 +230,33 @@ class BookmarkIT
         try ( Transaction tx = session.beginTransaction() )
         {
             tx.run( "CREATE (a:Person)" );
-            tx.success();
+            tx.commit();
         }
+    }
+
+    private static boolean isUuid( String string )
+    {
+        try
+        {
+            UUID.fromString( string );
+        }
+        catch ( IllegalArgumentException | NullPointerException e )
+        {
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean isNumeric( String string )
+    {
+        try
+        {
+            Long.parseLong( string );
+        }
+        catch ( NumberFormatException | NullPointerException e )
+        {
+            return false;
+        }
+        return true;
     }
 }

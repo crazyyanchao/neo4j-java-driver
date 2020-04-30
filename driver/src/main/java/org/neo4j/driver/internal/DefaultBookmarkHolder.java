@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,31 +18,33 @@
  */
 package org.neo4j.driver.internal;
 
+import org.neo4j.driver.Bookmark;
+
 /**
  * @since 2.0
  */
 public class DefaultBookmarkHolder implements BookmarkHolder
 {
-    private volatile InternalBookmark bookmark;
+    private volatile Bookmark bookmark;
 
     public DefaultBookmarkHolder()
     {
         this( InternalBookmark.empty() );
     }
 
-    public DefaultBookmarkHolder( InternalBookmark bookmark )
+    public DefaultBookmarkHolder( Bookmark bookmark )
     {
         this.bookmark = bookmark;
     }
 
     @Override
-    public InternalBookmark getBookmark()
+    public Bookmark getBookmark()
     {
         return bookmark;
     }
 
     @Override
-    public void setBookmark( InternalBookmark bookmark )
+    public void setBookmark( Bookmark bookmark )
     {
         if ( bookmark != null && !bookmark.isEmpty() )
         {

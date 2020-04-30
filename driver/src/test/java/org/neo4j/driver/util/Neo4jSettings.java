@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -38,7 +38,6 @@ public class Neo4jSettings
     private static final String DEFAULT_CERT_DIR = "certificates";
     public static final String DEFAULT_TLS_CERT_PATH = DEFAULT_CERT_DIR + "/neo4j.cert";
     public static final String DEFAULT_TLS_KEY_PATH = DEFAULT_CERT_DIR + "/neo4j.key";
-    public static final String DEFAULT_PAGE_CACHE_SIZE = "512m";
     public static final String DEFAULT_BOLT_TLS_LEVEL = BoltTlsLevel.OPTIONAL.toString();
 
     public static final String DEFAULT_DATA_DIR = "data";
@@ -59,7 +58,6 @@ public class Neo4jSettings
     private final Set<String> excludes;
 
     public static final Neo4jSettings TEST_SETTINGS = new Neo4jSettings( map(
-            "dbms.backup.enabled", "false",
             "dbms.connector.http.listen_address", ":" + CURRENT_HTTP_PORT,
             "dbms.connector.https.listen_address", ":" + CURRENT_HTTPS_PORT,
             "dbms.connector.bolt.listen_address", ":" + CURRENT_BOLT_PORT,

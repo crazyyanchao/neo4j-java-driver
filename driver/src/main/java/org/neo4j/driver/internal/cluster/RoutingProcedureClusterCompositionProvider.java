@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -22,16 +22,17 @@ import java.util.List;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 
+import org.neo4j.driver.Bookmark;
+import org.neo4j.driver.Query;
 import org.neo4j.driver.Record;
-import org.neo4j.driver.Statement;
 import org.neo4j.driver.exceptions.ProtocolException;
 import org.neo4j.driver.exceptions.value.ValueException;
-import org.neo4j.driver.internal.InternalBookmark;
+import org.neo4j.driver.internal.DatabaseName;
 import org.neo4j.driver.internal.spi.Connection;
 import org.neo4j.driver.internal.util.Clock;
-import org.neo4j.driver.internal.util.ServerVersion;
 
 import static java.lang.String.format;
+import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.supportsMultiDatabase;
 
 public class RoutingProcedureClusterCompositionProvider implements ClusterCompositionProvider
 {
@@ -55,10 +56,10 @@ public class RoutingProcedureClusterCompositionProvider implements ClusterCompos
     }
 
     @Override
-    public CompletionStage<ClusterComposition> getClusterComposition( Connection connection, String databaseName, InternalBookmark bookmark )
+    public CompletionStage<ClusterComposition> getClusterComposition( Connection connection, DatabaseName databaseName, Bookmark bookmark )
     {
         RoutingProcedureRunner runner;
-        if ( connection.serverVersion().greaterThanOrEqual( ServerVersion.v4_0_0 ) )
+        if ( supportsMultiDatabase( connection ) )
         {
             runner = multiDatabaseRoutingProcedureRunner;
         }
@@ -119,7 +120,7 @@ public class RoutingProcedureClusterCompositionProvider implements ClusterCompos
 
     private static String invokedProcedureString( RoutingProcedureResponse response )
     {
-        Statement statement = response.procedure();
-        return statement.text() + " " + statement.parameters();
+        Query query = response.procedure();
+        return query.text() + " " + query.parameters();
     }
 }

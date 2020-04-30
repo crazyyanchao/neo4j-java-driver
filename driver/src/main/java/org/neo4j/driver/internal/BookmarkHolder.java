@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,22 +18,24 @@
  */
 package org.neo4j.driver.internal;
 
+import org.neo4j.driver.Bookmark;
+
 public interface BookmarkHolder
 {
-    InternalBookmark getBookmark();
+    Bookmark getBookmark();
 
-    void setBookmark( InternalBookmark bookmark );
+    void setBookmark( Bookmark bookmark );
 
     BookmarkHolder NO_OP = new BookmarkHolder()
     {
         @Override
-        public InternalBookmark getBookmark()
+        public Bookmark getBookmark()
         {
             return InternalBookmark.empty();
         }
 
         @Override
-        public void setBookmark( InternalBookmark bookmark )
+        public void setBookmark( Bookmark bookmark )
         {
         }
     };

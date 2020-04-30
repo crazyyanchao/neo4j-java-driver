@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,9 +18,19 @@
  */
 package org.neo4j.driver.internal.async.pool;
 
-import io.netty.channel.pool.ChannelPool;
+import io.netty.channel.Channel;
 
-public interface ExtendedChannelPool extends ChannelPool
+import java.util.concurrent.CompletionStage;
+
+public interface ExtendedChannelPool
 {
+    CompletionStage<Channel> acquire();
+
+    CompletionStage<Void> release( Channel channel );
+
     boolean isClosed();
+
+    String id();
+
+    CompletionStage<Void> close();
 }

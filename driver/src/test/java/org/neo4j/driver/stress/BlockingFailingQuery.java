@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -21,7 +21,7 @@ package org.neo4j.driver.stress;
 import org.neo4j.driver.AccessMode;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
+import org.neo4j.driver.Result;
 
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.junit.MatcherAssert.assertThat;
@@ -40,7 +40,7 @@ public class BlockingFailingQuery<C extends AbstractContext> extends AbstractBlo
     {
         try ( Session session = newSession( AccessMode.READ, context ) )
         {
-            StatementResult result = session.run( "UNWIND [10, 5, 0] AS x RETURN 10 / x" );
+            Result result = session.run( "UNWIND [10, 5, 0] AS x RETURN 10 / x" );
             Exception e = assertThrows( Exception.class, result::consume );
             assertThat( e, is( arithmeticError() ) );
         }

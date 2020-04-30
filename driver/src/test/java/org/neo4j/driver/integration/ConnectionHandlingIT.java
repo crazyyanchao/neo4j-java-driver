@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -33,6 +33,16 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
+import org.neo4j.driver.AuthToken;
+import org.neo4j.driver.Config;
+import org.neo4j.driver.Driver;
+import org.neo4j.driver.Logging;
+import org.neo4j.driver.Record;
+import org.neo4j.driver.Session;
+import org.neo4j.driver.Result;
+import org.neo4j.driver.QueryRunner;
+import org.neo4j.driver.Transaction;
+import org.neo4j.driver.exceptions.ClientException;
 import org.neo4j.driver.internal.BoltServerAddress;
 import org.neo4j.driver.internal.ConnectionSettings;
 import org.neo4j.driver.internal.DriverFactory;
@@ -43,27 +53,19 @@ import org.neo4j.driver.internal.cluster.RoutingSettings;
 import org.neo4j.driver.internal.metrics.MetricsProvider;
 import org.neo4j.driver.internal.retry.RetrySettings;
 import org.neo4j.driver.internal.security.SecurityPlan;
+import org.neo4j.driver.internal.security.SecurityPlanImpl;
 import org.neo4j.driver.internal.spi.Connection;
 import org.neo4j.driver.internal.spi.ConnectionPool;
 import org.neo4j.driver.internal.util.Clock;
 import org.neo4j.driver.internal.util.EnabledOnNeo4jWith;
-import org.neo4j.driver.reactive.RxStatementResult;
 import org.neo4j.driver.reactive.RxSession;
+import org.neo4j.driver.reactive.RxResult;
 import org.neo4j.driver.reactive.RxTransaction;
-import org.neo4j.driver.AuthToken;
-import org.neo4j.driver.Config;
-import org.neo4j.driver.Driver;
-import org.neo4j.driver.Logging;
-import org.neo4j.driver.Record;
-import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
-import org.neo4j.driver.StatementRunner;
-import org.neo4j.driver.Transaction;
-import org.neo4j.driver.exceptions.ClientException;
 import org.neo4j.driver.summary.ResultSummary;
 import org.neo4j.driver.util.DatabaseExtension;
 import org.neo4j.driver.util.ParallelizableIT;
 
+import static java.util.Collections.singletonList;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -75,10 +77,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.neo4j.driver.internal.metrics.InternalAbstractMetrics.DEV_NULL_METRICS;
-import static org.neo4j.driver.internal.util.Neo4jFeature.BOLT_V4;
 import static org.neo4j.driver.Config.defaultConfig;
 import static org.neo4j.driver.Values.parameters;
+import static org.neo4j.driver.internal.metrics.InternalAbstractMetrics.DEV_NULL_METRICS;
+import static org.neo4j.driver.internal.util.Neo4jFeature.BOLT_V4;
 import static org.neo4j.driver.util.TestUtil.await;
 
 @ParallelizableIT
@@ -97,7 +99,7 @@ class ConnectionHandlingIT
         AuthToken auth = neo4j.authToken();
         RoutingSettings routingSettings = RoutingSettings.DEFAULT;
         RetrySettings retrySettings = RetrySettings.DEFAULT;
-        driver = driverFactory.newInstance( neo4j.uri(), auth, routingSettings, retrySettings, defaultConfig() );
+        driver = driverFactory.newInstance( neo4j.uri(), auth, routingSettings, retrySettings, defaultConfig(), SecurityPlanImpl.insecure() );
         connectionPool = driverFactory.connectionPool;
         connectionPool.startMemorizing(); // start memorizing connections after driver creation
     }
@@ -111,7 +113,7 @@ class ConnectionHandlingIT
     @Test
     void connectionUsedForSessionRunReturnedToThePoolWhenResultConsumed()
     {
-        StatementResult result = createNodesInNewSession( 12 );
+        Result result = createNodesInNewSession( 12 );
 
         Connection connection1 = connectionPool.lastAcquiredConnectionSpy;
         verify( connection1, never() ).release();
@@ -126,12 +128,12 @@ class ConnectionHandlingIT
     @Test
     void connectionUsedForSessionRunReturnedToThePoolWhenResultSummaryObtained()
     {
-        StatementResult result = createNodesInNewSession( 5 );
+        Result result = createNodesInNewSession( 5 );
 
         Connection connection1 = connectionPool.lastAcquiredConnectionSpy;
         verify( connection1, never() ).release();
 
-        ResultSummary summary = result.summary();
+        ResultSummary summary = result.consume();
 
         assertEquals( 5, summary.counters().nodesCreated() );
         Connection connection2 = connectionPool.lastAcquiredConnectionSpy;
@@ -142,7 +144,7 @@ class ConnectionHandlingIT
     @Test
     void connectionUsedForSessionRunReturnedToThePoolWhenResultFetchedInList()
     {
-        StatementResult result = createNodesInNewSession( 2 );
+        Result result = createNodesInNewSession( 2 );
 
         Connection connection1 = connectionPool.lastAcquiredConnectionSpy;
         verify( connection1, never() ).release();
@@ -158,7 +160,7 @@ class ConnectionHandlingIT
     @Test
     void connectionUsedForSessionRunReturnedToThePoolWhenSingleRecordFetched()
     {
-        StatementResult result = createNodesInNewSession( 1 );
+        Result result = createNodesInNewSession( 1 );
 
         Connection connection1 = connectionPool.lastAcquiredConnectionSpy;
         verify( connection1, never() ).release();
@@ -173,7 +175,7 @@ class ConnectionHandlingIT
     @Test
     void connectionUsedForSessionRunReturnedToThePoolWhenResultFetchedAsIterator()
     {
-        StatementResult result = createNodesInNewSession( 6 );
+        Result result = createNodesInNewSession( 6 );
 
         Connection connection1 = connectionPool.lastAcquiredConnectionSpy;
         verify( connection1, never() ).release();
@@ -196,7 +198,7 @@ class ConnectionHandlingIT
     {
         Session session = driver.session();
         // provoke division by zero
-        StatementResult result = session.run( "UNWIND range(10, 0, -1) AS i CREATE (n {index: 10/i}) RETURN n" );
+        Result result = session.run( "UNWIND range(10, 0, -1) AS i CREATE (n {index: 10/i}) RETURN n" );
 
         Connection connection1 = connectionPool.lastAcquiredConnectionSpy;
         verify( connection1, never() ).release();
@@ -218,15 +220,16 @@ class ConnectionHandlingIT
         Connection connection1 = connectionPool.lastAcquiredConnectionSpy;
         verify( connection1, never() ).release();
 
-        StatementResult result = createNodes( 5, tx );
-        tx.success();
+        Result result = createNodes( 5, tx );
+        int size = result.list().size();
+        tx.commit();
         tx.close();
 
         Connection connection2 = connectionPool.lastAcquiredConnectionSpy;
         assertSame( connection1, connection2 );
         verify( connection1 ).release();
 
-        assertEquals( 5, result.list().size() );
+        assertEquals( 5, size );
     }
 
     @Test
@@ -239,15 +242,16 @@ class ConnectionHandlingIT
         Connection connection1 = connectionPool.lastAcquiredConnectionSpy;
         verify( connection1, never() ).release();
 
-        StatementResult result = createNodes( 8, tx );
-        tx.failure();
+        Result result = createNodes( 8, tx );
+        int size = result.list().size();
+        tx.rollback();
         tx.close();
 
         Connection connection2 = connectionPool.lastAcquiredConnectionSpy;
         assertSame( connection1, connection2 );
         verify( connection1 ).release();
 
-        assertEquals( 8, result.list().size() );
+        assertEquals( 8, size );
     }
 
     @Test
@@ -255,7 +259,7 @@ class ConnectionHandlingIT
     {
         try ( Session session = driver.session() )
         {
-            session.run( "CREATE CONSTRAINT ON (book:Book) ASSERT exists(book.isbn)" );
+            session.run( "CREATE CONSTRAINT ON (book:Library) ASSERT exists(book.isbn)" );
         }
 
         Connection connection1 = connectionPool.lastAcquiredConnectionSpy;
@@ -267,10 +271,9 @@ class ConnectionHandlingIT
         verify( connection2, never() ).release();
 
         // property existence constraints are verified on commit, try to violate it
-        tx.run( "CREATE (:Book)" );
-        tx.success();
+        tx.run( "CREATE (:Library)" );
 
-        assertThrows( ClientException.class, tx::close );
+        assertThrows( ClientException.class, tx::commit );
 
         // connection should have been released after failed node creation
         verify( connection2 ).release();
@@ -280,7 +283,7 @@ class ConnectionHandlingIT
     void connectionUsedForSessionRunReturnedToThePoolWhenSessionClose()
     {
         Session session = driver.session();
-        StatementResult result = createNodes( 12, session );
+        Result result = createNodes( 12, session );
 
         Connection connection1 = connectionPool.lastAcquiredConnectionSpy;
         verify( connection1, never() ).release();
@@ -313,10 +316,10 @@ class ConnectionHandlingIT
     void sessionCloseShouldReleaseConnectionUsedBySessionRun() throws Throwable
     {
         RxSession session = driver.rxSession();
-        RxStatementResult res = session.run( "UNWIND [1,2,3,4] AS a RETURN a" );
+        RxResult res = session.run( "UNWIND [1,2,3,4] AS a RETURN a" );
 
         // When we only run but not pull
-        StepVerifier.create( Flux.from( res.keys() ) ).expectNext( "a" ).verifyComplete();
+        StepVerifier.create( Flux.from( res.keys() ) ).expectNext( singletonList( "a" ) ).verifyComplete();
         Connection connection1 = connectionPool.lastAcquiredConnectionSpy;
         verify( connection1, never() ).release();
 
@@ -332,7 +335,7 @@ class ConnectionHandlingIT
     void resultRecordsShouldReleaseConnectionUsedBySessionRun() throws Throwable
     {
         RxSession session = driver.rxSession();
-        RxStatementResult res = session.run( "UNWIND [1,2,3,4] AS a RETURN a" );
+        RxResult res = session.run( "UNWIND [1,2,3,4] AS a RETURN a" );
         Connection connection1 = connectionPool.lastAcquiredConnectionSpy;
         assertNull( connection1 );
 
@@ -350,11 +353,11 @@ class ConnectionHandlingIT
     void resultSummaryShouldReleaseConnectionUsedBySessionRun() throws Throwable
     {
         RxSession session = driver.rxSession();
-        RxStatementResult res = session.run( "UNWIND [1,2,3,4] AS a RETURN a" );
+        RxResult res = session.run( "UNWIND [1,2,3,4] AS a RETURN a" );
         Connection connection1 = connectionPool.lastAcquiredConnectionSpy;
         assertNull( connection1 );
 
-        StepVerifier.create( Mono.from( res.summary() ) ).expectNextCount( 1 ).verifyComplete();
+        StepVerifier.create( Mono.from( res.consume() ) ).expectNextCount( 1 ).verifyComplete();
 
         Connection connection2 = connectionPool.lastAcquiredConnectionSpy;
         assertNotSame( connection1, connection2 );
@@ -371,7 +374,7 @@ class ConnectionHandlingIT
             Connection connection1 = connectionPool.lastAcquiredConnectionSpy;
             verify( connection1, never() ).release();
 
-            RxStatementResult result = tx.run( "UNWIND [1,2,3,4] AS a RETURN a" );
+            RxResult result = tx.run( "UNWIND [1,2,3,4] AS a RETURN a" );
             StepVerifier.create( Flux.from( result.records() ).map( record -> record.get( "a" ).asInt() ) )
                     .expectNext( 1, 2, 3, 4 ).verifyComplete();
 
@@ -393,7 +396,7 @@ class ConnectionHandlingIT
             Connection connection1 = connectionPool.lastAcquiredConnectionSpy;
             verify( connection1, never() ).release();
 
-            RxStatementResult result = tx.run( "UNWIND [1,2,3,4] AS a RETURN a" );
+            RxResult result = tx.run( "UNWIND [1,2,3,4] AS a RETURN a" );
             StepVerifier.create( Flux.from( result.records() ).map( record -> record.get( "a" ).asInt() ) )
                     .expectNext( 1, 2, 3, 4 ).verifyComplete();
 
@@ -425,14 +428,14 @@ class ConnectionHandlingIT
         verify( connection1, times( 2 ) ).release();
     }
 
-    private StatementResult createNodesInNewSession( int nodesToCreate )
+    private Result createNodesInNewSession(int nodesToCreate )
     {
         return createNodes( nodesToCreate, driver.session() );
     }
 
-    private StatementResult createNodes( int nodesToCreate, StatementRunner statementRunner )
+    private Result createNodes(int nodesToCreate, QueryRunner queryRunner)
     {
-        return statementRunner.run( "UNWIND range(1, {nodesToCreate}) AS i CREATE (n {index: i}) RETURN n",
+        return queryRunner.run( "UNWIND range(1, $nodesToCreate) AS i CREATE (n {index: i}) RETURN n",
                 parameters( "nodesToCreate", nodesToCreate ) );
     }
 

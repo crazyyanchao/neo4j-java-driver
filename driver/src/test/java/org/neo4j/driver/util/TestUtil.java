@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -30,6 +30,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -44,14 +45,14 @@ import java.util.concurrent.TimeoutException;
 import java.util.function.BooleanSupplier;
 
 import org.neo4j.driver.AccessMode;
+import org.neo4j.driver.Bookmark;
 import org.neo4j.driver.Driver;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
+import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.internal.BoltServerAddress;
-import org.neo4j.driver.internal.Bookmark;
 import org.neo4j.driver.internal.DefaultBookmarkHolder;
-import org.neo4j.driver.internal.InternalBookmark;
 import org.neo4j.driver.internal.async.NetworkSession;
 import org.neo4j.driver.internal.async.connection.EventLoopGroupFactory;
 import org.neo4j.driver.internal.handlers.BeginTxResponseHandler;
@@ -92,9 +93,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.neo4j.driver.AccessMode.WRITE;
 import static org.neo4j.driver.SessionConfig.builder;
+import static org.neo4j.driver.SessionConfig.forDatabase;
+import static org.neo4j.driver.internal.DatabaseNameUtil.database;
+import static org.neo4j.driver.internal.DatabaseNameUtil.defaultDatabase;
 import static org.neo4j.driver.internal.InternalBookmark.empty;
+import static org.neo4j.driver.internal.handlers.pulln.FetchSizeUtil.UNLIMITED_FETCH_SIZE;
 import static org.neo4j.driver.internal.logging.DevNullLogging.DEV_NULL_LOGGING;
-import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.ABSENT_DB_NAME;
 import static org.neo4j.driver.internal.util.Futures.completedWithNull;
 
 public final class TestUtil
@@ -102,8 +106,9 @@ public final class TestUtil
     public static final int DEFAULT_TEST_PROTOCOL_VERSION = BoltProtocolV4.VERSION;
     public static final BoltProtocol DEFAULT_TEST_PROTOCOL = BoltProtocol.forVersion( DEFAULT_TEST_PROTOCOL_VERSION );
 
-    private static final long DEFAULT_WAIT_TIME_MS = MINUTES.toMillis( 1 );
+    private static final long DEFAULT_WAIT_TIME_MS = MINUTES.toMillis( 2 );
     private static final String ALPHANUMERICS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz123456789";
+    public static final Duration TX_TIMEOUT_TEST_TIMEOUT = Duration.ofSeconds( 10 );
 
     private TestUtil()
     {
@@ -220,6 +225,12 @@ public final class TestUtil
         return new LinkedHashSet<>( Arrays.asList( elements ) );
     }
 
+    @SafeVarargs
+    public static <T> Set<T> asSet( T... elements )
+    {
+        return new HashSet<>( Arrays.asList( elements ) );
+    }
+
     public static long countNodes( Driver driver, Bookmark bookmark )
     {
         try ( Session session = driver.session( builder().withBookmarks( bookmark ).build() ) )
@@ -237,12 +248,49 @@ public final class TestUtil
         }
     }
 
-    public static NetworkSession newSession( ConnectionProvider connectionProvider, InternalBookmark x )
+    public static void dropDatabase( Driver driver, String database )
+    {
+        boolean databaseExists = databaseExists( driver, database );
+        if ( !databaseExists )
+        {
+            return;
+        }
+
+        try ( Session session = driver.session( forDatabase( "system" ) ) )
+        {
+            session.run( "DROP DATABASE " + database ).consume();
+        }
+    }
+
+    public static void createDatabase( Driver driver, String database )
+    {
+        boolean databaseExists = databaseExists( driver, database );
+        if ( databaseExists )
+        {
+            return;
+        }
+
+        try ( Session session = driver.session( SessionConfig.forDatabase( "system" ) ) )
+        {
+            session.run( "CREATE DATABASE " + database ).consume();
+        }
+    }
+
+    public static boolean databaseExists( Driver driver, String database )
+    {
+        try ( Session session = driver.session( forDatabase( "system" ) ) )
+        {
+            // No procedure equivalent and `call dbms.database.state("db")` also throws an exception when db doesn't exist
+            return session.run( "SHOW DATABASES" ).stream().anyMatch( r -> r.get( "name" ).asString().equals( database ) );
+        }
+    }
+
+    public static NetworkSession newSession( ConnectionProvider connectionProvider, Bookmark x )
     {
         return newSession( connectionProvider, WRITE, x );
     }
 
-    private static NetworkSession newSession( ConnectionProvider connectionProvider, AccessMode mode, InternalBookmark x )
+    private static NetworkSession newSession( ConnectionProvider connectionProvider, AccessMode mode, Bookmark x )
     {
         return newSession( connectionProvider, mode, new FixedRetryLogic( 0 ), x );
     }
@@ -263,19 +311,21 @@ public final class TestUtil
     }
 
     public static NetworkSession newSession( ConnectionProvider connectionProvider, AccessMode mode,
-            RetryLogic retryLogic, InternalBookmark bookmark )
+            RetryLogic retryLogic, Bookmark bookmark )
     {
-        return new NetworkSession( connectionProvider, retryLogic, ABSENT_DB_NAME, mode, new DefaultBookmarkHolder( bookmark ), DEV_NULL_LOGGING );
+        return new NetworkSession( connectionProvider, retryLogic, defaultDatabase(), mode, new DefaultBookmarkHolder( bookmark ), UNLIMITED_FETCH_SIZE,
+                DEV_NULL_LOGGING );
     }
 
-    public static void verifyRun( Connection connection, String query )
+    public static void verifyRunRx( Connection connection, String query )
     {
-        verify( connection ).writeAndFlush( argThat( runWithMetaMessageWithStatementMatcher( query ) ), any() );
+        verify( connection ).writeAndFlush( argThat( runWithMetaMessageWithQueryMatcher( query ) ), any() );
     }
 
     public static void verifyRunAndPull( Connection connection, String query )
     {
-        verify( connection ).writeAndFlush( argThat( runWithMetaMessageWithStatementMatcher( query ) ), any(), any( PullMessage.class ), any() );
+        verify( connection ).write( argThat( runWithMetaMessageWithQueryMatcher( query ) ), any() );
+        verify( connection ).writeAndFlush( any( PullMessage.class ), any() );
     }
 
     public static void verifyCommitTx( Connection connection, VerificationMode mode )
@@ -303,7 +353,7 @@ public final class TestUtil
         verifyBeginTx( connectionMock, empty() );
     }
 
-    public static void verifyBeginTx( Connection connectionMock, InternalBookmark bookmark )
+    public static void verifyBeginTx( Connection connectionMock, Bookmark bookmark )
     {
         if ( bookmark.isEmpty() )
         {
@@ -321,10 +371,16 @@ public final class TestUtil
         {
             ResponseHandler runHandler = invocation.getArgument( 1 );
             runHandler.onFailure( error );
-            ResponseHandler pullHandler = invocation.getArgument( 3 );
+            return null;
+        } ).when( connection ).writeAndFlush( any( RunWithMetadataMessage.class ), any() );
+
+        doAnswer( invocation ->
+        {
+            ResponseHandler pullHandler = invocation.getArgument( 1 );
             pullHandler.onFailure( error );
             return null;
-        } ).when( connection ).writeAndFlush( any( RunWithMetadataMessage.class ), any(), any( PullMessage.class ), any() );
+        } ).when( connection ).writeAndFlush( any( PullMessage.class ), any() );
+
     }
 
     public static void setupFailingBegin( Connection connection, Throwable error )
@@ -400,13 +456,18 @@ public final class TestUtil
         {
             ResponseHandler runHandler = invocation.getArgument( 1 );
             runHandler.onSuccess( emptyMap() );
-            ResponseHandler pullHandler = invocation.getArgument( 3 );
+            return null;
+        } ).when( connection ).write( any( RunWithMetadataMessage.class ), any() );
+
+        doAnswer( invocation ->
+        {
+            ResponseHandler pullHandler = invocation.getArgument( 1 );
             pullHandler.onSuccess( emptyMap() );
             return null;
-        } ).when( connection ).writeAndFlush( any( RunWithMetadataMessage.class ), any(), any( PullMessage.class ), any() );
+        } ).when( connection ).writeAndFlush( any( PullMessage.class ), any() );
     }
 
-    public static void setupSuccessfulRun( Connection connection )
+    public static void setupSuccessfulRunRx( Connection connection )
     {
         doAnswer( invocation ->
         {
@@ -422,10 +483,15 @@ public final class TestUtil
         {
             ResponseHandler runHandler = invocation.getArgument( 1 );
             runHandler.onSuccess( emptyMap() );
-            ResponseHandler pullHandler = invocation.getArgument( 3 );
+            return null;
+        } ).when( connection ).write( argThat( runWithMetaMessageWithQueryMatcher( query ) ), any() );
+
+        doAnswer( invocation ->
+        {
+            ResponseHandler pullHandler = invocation.getArgument( 1 );
             pullHandler.onSuccess( emptyMap() );
             return null;
-        } ).when( connection ).writeAndFlush( argThat( runWithMetaMessageWithStatementMatcher( query ) ), any(), any( PullMessage.class ), any() );
+        } ).when( connection ).writeAndFlush( any( PullMessage.class ), any() );
     }
 
     public static Connection connectionMock()
@@ -440,7 +506,7 @@ public final class TestUtil
 
     public static Connection connectionMock( AccessMode mode, BoltProtocol protocol )
     {
-        return connectionMock( ABSENT_DB_NAME, mode, protocol );
+        return connectionMock( null, mode, protocol );
     }
 
     public static Connection connectionMock( String databaseName, BoltProtocol protocol )
@@ -455,7 +521,7 @@ public final class TestUtil
         when( connection.serverVersion() ).thenReturn( ServerVersion.vInDev );
         when( connection.protocol() ).thenReturn( protocol );
         when( connection.mode() ).thenReturn( mode );
-        when( connection.databaseName() ).thenReturn( databaseName );
+        when( connection.databaseName() ).thenReturn( database( databaseName ) );
         int version = protocol.version();
         if ( version == BoltProtocolV1.VERSION || version == BoltProtocolV2.VERSION )
         {
@@ -561,14 +627,14 @@ public final class TestUtil
         return sb.toString();
     }
 
-    public static ArgumentMatcher<Message> runMessageWithStatementMatcher( String statement )
+    public static ArgumentMatcher<Message> runMessageWithQueryMatcher(String query )
     {
-        return message -> message instanceof RunMessage && Objects.equals( statement, ((RunMessage) message).statement() );
+        return message -> message instanceof RunMessage && Objects.equals( query, ((RunMessage) message).query() );
     }
 
-    public static ArgumentMatcher<Message> runWithMetaMessageWithStatementMatcher( String statement )
+    public static ArgumentMatcher<Message> runWithMetaMessageWithQueryMatcher(String query )
     {
-        return message -> message instanceof RunWithMetadataMessage && Objects.equals( statement, ((RunWithMetadataMessage) message).statement() );
+        return message -> message instanceof RunWithMetadataMessage && Objects.equals( query, ((RunWithMetadataMessage) message).query() );
     }
 
     /**
@@ -579,14 +645,14 @@ public final class TestUtil
         return ServerVersion.v4_0_0;
     }
 
-    private static void setupSuccessfulPullAll( Connection connection, String statement )
+    private static void setupSuccessfulPullAll( Connection connection, String query )
     {
         doAnswer( invocation ->
         {
             ResponseHandler handler = invocation.getArgument( 3 );
             handler.onSuccess( emptyMap() );
             return null;
-        } ).when( connection ).writeAndFlush( argThat( runMessageWithStatementMatcher( statement ) ), any(), any(), any() );
+        } ).when( connection ).writeAndFlush( argThat( runMessageWithQueryMatcher( query ) ), any(), any(), any() );
     }
 
     private static void setupSuccessResponse( Connection connection, Class<? extends Message> messageType )
@@ -613,7 +679,7 @@ public final class TestUtil
     {
         return session.writeTransaction( tx ->
         {
-            StatementResult result = tx.run( "MATCH (n) WITH n LIMIT 10000 DETACH DELETE n RETURN count(n)" );
+            Result result = tx.run( "MATCH (n) WITH n LIMIT 10000 DETACH DELETE n RETURN count(n)" );
             return result.single().get( 0 ).asInt();
         } );
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,6 +18,7 @@
  */
 package org.neo4j.driver.util.cc;
 
+import java.io.FileNotFoundException;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
@@ -31,7 +32,7 @@ import java.util.concurrent.TimeUnit;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.internal.BoltServerAddress;
-import org.neo4j.driver.internal.Bookmark;
+import org.neo4j.driver.Bookmark;
 import org.neo4j.driver.util.TestUtil;
 import org.neo4j.driver.util.cc.ClusterMemberRoleDiscoveryFactory.ClusterMemberRoleDiscovery;
 
@@ -175,6 +176,24 @@ public class Cluster implements AutoCloseable
         return clusterDrivers.getDriver( member );
     }
 
+    public void dumpClusterDebugLog()
+    {
+        for ( ClusterMember member : members )
+        {
+
+            System.out.println( "Debug log for: " + member.getPath().toString() );
+            try
+            {
+                member.dumpDebugLog();
+            }
+            catch ( FileNotFoundException e )
+            {
+                System.out.println("Unable to find debug log file for: " + member.getPath().toString());
+                e.printStackTrace();
+            }
+        }
+    }
+
     @Override
     public void close()
     {
@@ -278,11 +297,7 @@ public class Cluster implements AutoCloseable
             try
             {
                 final Map<BoltServerAddress,ClusterMemberRole> clusterOverview = discovery.findClusterOverview( driver );
-                // we will wait until the leader is online
-                if ( clusterOverview.containsValue( ClusterMemberRole.LEADER ) )
-                {
-                    actualOnlineAddresses = clusterOverview.keySet();
-                }
+                actualOnlineAddresses = clusterOverview.keySet();
             }
             catch ( Throwable t )
             {

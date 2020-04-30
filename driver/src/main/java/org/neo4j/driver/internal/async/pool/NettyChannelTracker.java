@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -36,6 +36,7 @@ import org.neo4j.driver.internal.metrics.MetricsListener;
 import org.neo4j.driver.Logger;
 import org.neo4j.driver.Logging;
 
+import static org.neo4j.driver.internal.async.connection.ChannelAttributes.poolId;
 import static org.neo4j.driver.internal.async.connection.ChannelAttributes.serverAddress;
 
 public class NettyChannelTracker implements ChannelPoolHandler
@@ -90,28 +91,27 @@ public class NettyChannelTracker implements ChannelPoolHandler
         log.debug( "Channel [0x%s] created. Local address: %s, remote address: %s",
                 channel.id(), channel.localAddress(), channel.remoteAddress() );
 
-        incrementInUse( channel );
-        metricsListener.afterCreated( serverAddress( channel ), creatingEvent );
-
+        incrementIdle( channel ); // when it is created, we count it as idle as it has not been acquired out of the pool
+        metricsListener.afterCreated( poolId( channel ), creatingEvent );
         allChannels.add( channel );
     }
 
-    public ListenerEvent channelCreating( BoltServerAddress address )
+    public ListenerEvent channelCreating( String poolId )
     {
         ListenerEvent creatingEvent = metricsListener.createListenerEvent();
-        metricsListener.beforeCreating( address, creatingEvent );
+        metricsListener.beforeCreating( poolId, creatingEvent );
         return creatingEvent;
     }
 
-    public void channelFailedToCreate( BoltServerAddress address )
+    public void channelFailedToCreate( String poolId )
     {
-        metricsListener.afterFailedToCreate( address );
+        metricsListener.afterFailedToCreate( poolId );
     }
 
     public void channelClosed( Channel channel )
     {
         decrementIdle( channel );
-        metricsListener.afterClosed( serverAddress( channel ) );
+        metricsListener.afterClosed( poolId( channel ) );
     }
 
     public int inUseChannelCount( BoltServerAddress address )

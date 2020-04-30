@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -20,23 +20,23 @@ package org.neo4j.driver.internal.handlers;
 
 import java.util.List;
 import java.util.concurrent.CompletionStage;
-
-import org.neo4j.driver.internal.spi.ResponseHandler;
-import org.neo4j.driver.Record;
-import org.neo4j.driver.summary.ResultSummary;
 import java.util.function.Function;
+
+import org.neo4j.driver.Record;
+import org.neo4j.driver.internal.spi.ResponseHandler;
+import org.neo4j.driver.summary.ResultSummary;
 
 public interface PullAllResponseHandler extends ResponseHandler
 {
-    CompletionStage<ResultSummary> summaryAsync();
+    CompletionStage<ResultSummary> consumeAsync();
 
     CompletionStage<Record> nextAsync();
 
     CompletionStage<Record> peekAsync();
 
-    CompletionStage<ResultSummary> consumeAsync();
-
     <T> CompletionStage<List<T>> listAsync( Function<Record, T> mapFunction );
 
-    CompletionStage<Throwable> failureAsync();
+    CompletionStage<Throwable> pullAllFailureAsync();
+
+    void prePopulateRecords();
 }

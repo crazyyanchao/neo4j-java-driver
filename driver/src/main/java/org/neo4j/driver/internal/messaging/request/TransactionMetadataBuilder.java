@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -22,13 +22,14 @@ import java.time.Duration;
 import java.util.Map;
 
 import org.neo4j.driver.AccessMode;
+import org.neo4j.driver.Bookmark;
 import org.neo4j.driver.Value;
-import org.neo4j.driver.internal.InternalBookmark;
+import org.neo4j.driver.internal.DatabaseName;
 import org.neo4j.driver.internal.util.Iterables;
 
 import static java.util.Collections.emptyMap;
 import static org.neo4j.driver.Values.value;
-import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.ABSENT_DB_NAME;
+import static org.neo4j.driver.internal.DatabaseNameUtil.defaultDatabase;
 
 public class TransactionMetadataBuilder
 {
@@ -39,18 +40,18 @@ public class TransactionMetadataBuilder
     private static final String MODE_KEY = "mode";
     private static final String MODE_READ_VALUE = "r";
 
-    public static Map<String,Value> buildMetadata( Duration txTimeout, Map<String,Value> txMetadata, AccessMode mode, InternalBookmark bookmark )
+    public static Map<String,Value> buildMetadata( Duration txTimeout, Map<String,Value> txMetadata, AccessMode mode, Bookmark bookmark )
     {
-        return buildMetadata( txTimeout, txMetadata, ABSENT_DB_NAME, mode, bookmark );
+        return buildMetadata( txTimeout, txMetadata, defaultDatabase(), mode, bookmark );
     }
 
-    public static Map<String,Value> buildMetadata( Duration txTimeout, Map<String,Value> txMetadata, String databaseName, AccessMode mode, InternalBookmark bookmark )
+    public static Map<String,Value> buildMetadata( Duration txTimeout, Map<String,Value> txMetadata, DatabaseName databaseName, AccessMode mode, Bookmark bookmark )
     {
         boolean bookmarksPresent = bookmark != null && !bookmark.isEmpty();
         boolean txTimeoutPresent = txTimeout != null;
         boolean txMetadataPresent = txMetadata != null && !txMetadata.isEmpty();
         boolean accessModePresent = mode == AccessMode.READ;
-        boolean databaseNamePresent = databaseName != null && !databaseName.equals( ABSENT_DB_NAME );
+        boolean databaseNamePresent = databaseName.databaseName().isPresent();
 
         if ( !bookmarksPresent && !txTimeoutPresent && !txMetadataPresent && !accessModePresent && !databaseNamePresent )
         {
@@ -75,10 +76,8 @@ public class TransactionMetadataBuilder
         {
             result.put( MODE_KEY, value( MODE_READ_VALUE ) );
         }
-        if ( databaseNamePresent ) // only sent if the database name is different from absent
-        {
-            result.put( DATABASE_NAME_KEY, value( databaseName ) );
-        }
+
+        databaseName.databaseName().ifPresent( name -> result.put( DATABASE_NAME_KEY, value( name ) ) );
 
         return result;
     }

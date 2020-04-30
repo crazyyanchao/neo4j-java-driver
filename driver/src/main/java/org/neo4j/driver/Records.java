@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -23,7 +23,7 @@ import java.util.function.Function;
 /**
  * Static utility methods for retaining records
  *
- * @see StatementResult#list()
+ * @see Result#list()
  * @since 1.0
  */
 public abstract class Records

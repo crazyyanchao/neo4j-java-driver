@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -21,33 +21,46 @@ package org.neo4j.driver.internal;
 import io.netty.channel.Channel;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
-import org.neo4j.driver.internal.cluster.RoutingSettings;
-import org.neo4j.driver.internal.retry.RetrySettings;
-import org.neo4j.driver.internal.util.io.ChannelTrackingDriverFactory;
-import org.neo4j.driver.internal.util.Clock;
 import org.neo4j.driver.AccessMode;
 import org.neo4j.driver.AuthTokens;
+import org.neo4j.driver.Bookmark;
 import org.neo4j.driver.Config;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Logger;
 import org.neo4j.driver.Record;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
 import org.neo4j.driver.Transaction;
+import org.neo4j.driver.async.AsyncSession;
+import org.neo4j.driver.async.ResultCursor;
 import org.neo4j.driver.exceptions.TransientException;
+import org.neo4j.driver.internal.cluster.RoutingSettings;
+import org.neo4j.driver.internal.retry.RetrySettings;
+import org.neo4j.driver.internal.security.SecurityPlanImpl;
+import org.neo4j.driver.internal.util.Clock;
+import org.neo4j.driver.internal.util.io.ChannelTrackingDriverFactory;
+import org.neo4j.driver.reactive.RxResult;
+import org.neo4j.driver.reactive.RxSession;
 import org.neo4j.driver.util.StubServer;
 
 import static java.util.Arrays.asList;
+import static java.util.Collections.singletonList;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.hamcrest.core.IsEqual.equalTo;
 import static org.hamcrest.junit.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -58,9 +71,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.neo4j.driver.SessionConfig.builder;
 import static org.neo4j.driver.SessionConfig.forDatabase;
-import static org.neo4j.driver.internal.logging.DevNullLogging.DEV_NULL_LOGGING;
 import static org.neo4j.driver.Values.parameters;
+import static org.neo4j.driver.internal.logging.DevNullLogging.DEV_NULL_LOGGING;
 import static org.neo4j.driver.util.StubServer.INSECURE_CONFIG;
+import static org.neo4j.driver.util.StubServer.insecureBuilder;
+import static org.neo4j.driver.util.TestUtil.asOrderedSet;
+import static org.neo4j.driver.util.TestUtil.await;
 
 class DirectDriverBoltKitTest
 {
@@ -89,9 +105,8 @@ class DirectDriverBoltKitTest
     {
         StubServer server = StubServer.start( "multiple_bookmarks.script", 9001 );
 
-        Bookmark bookmarks = InternalBookmark.parse( asList( "neo4j:bookmark:v1:tx5", "neo4j:bookmark:v1:tx29",
-                "neo4j:bookmark:v1:tx94", "neo4j:bookmark:v1:tx56", "neo4j:bookmark:v1:tx16",
-                "neo4j:bookmark:v1:tx68" ) );
+        Bookmark bookmarks = InternalBookmark.parse( asOrderedSet( "neo4j:bookmark:v1:tx5", "neo4j:bookmark:v1:tx29",
+                "neo4j:bookmark:v1:tx94", "neo4j:bookmark:v1:tx56", "neo4j:bookmark:v1:tx16", "neo4j:bookmark:v1:tx68" ) );
 
         try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", INSECURE_CONFIG );
               Session session = driver.session( builder().withBookmarks( bookmarks ).build() ) )
@@ -99,7 +114,7 @@ class DirectDriverBoltKitTest
             try ( Transaction tx = session.beginTransaction() )
             {
                 tx.run( "CREATE (n {name:'Bob'})" );
-                tx.success();
+                tx.commit();
             }
 
             assertEquals( InternalBookmark.parse( "neo4j:bookmark:v1:tx95" ), session.lastBookmark() );
@@ -147,7 +162,7 @@ class DirectDriverBoltKitTest
     }
 
     @Test
-    void shouldSendReadAccessModeInStatementMetadata() throws Exception
+    void shouldSendReadAccessModeInQueryMetadata() throws Exception
     {
         StubServer server = StubServer.start( "hello_run_exit_read.script", 9001 );
 
@@ -165,7 +180,7 @@ class DirectDriverBoltKitTest
     }
 
     @Test
-    void shouldNotSendWriteAccessModeInStatementMetadata() throws Exception
+    void shouldNotSendWriteAccessModeInQueryMetadata() throws Exception
     {
         StubServer server = StubServer.start( "hello_run_exit.script", 9001 );
 
@@ -191,7 +206,8 @@ class DirectDriverBoltKitTest
             Config config = Config.builder().withLogging( DEV_NULL_LOGGING ).withoutEncryption().build();
             ChannelTrackingDriverFactory driverFactory = new ChannelTrackingDriverFactory( 1, Clock.SYSTEM );
 
-            try ( Driver driver = driverFactory.newInstance( uri, AuthTokens.none(), RoutingSettings.DEFAULT, RetrySettings.DEFAULT, config ) )
+            try ( Driver driver = driverFactory.newInstance( uri, AuthTokens.none(), RoutingSettings.DEFAULT, RetrySettings.DEFAULT, config,
+                                                             SecurityPlanImpl.insecure() ) )
             {
                 try ( Session session = driver.session() )
                 {
@@ -212,42 +228,211 @@ class DirectDriverBoltKitTest
     }
 
     @Test
-    void shouldPropagateTransactionCommitErrorWhenSessionClosed() throws Exception
-    {
-        testTransactionCloseErrorPropagationWhenSessionClosed( "commit_error.script", true, "Unable to commit" );
-    }
-
-    @Test
     void shouldPropagateTransactionRollbackErrorWhenSessionClosed() throws Exception
     {
-        testTransactionCloseErrorPropagationWhenSessionClosed( "rollback_error.script", false, "Unable to rollback" );
+        StubServer server = StubServer.start( "rollback_error.script", 9001 );
+        try
+        {
+            try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", INSECURE_CONFIG ) )
+            {
+                Session session = driver.session();
+
+                Transaction tx = session.beginTransaction();
+                Result result = tx.run( "CREATE (n {name:'Alice'}) RETURN n.name AS name" );
+                assertEquals( "Alice", result.single().get( "name" ).asString() );
+
+                TransientException e = assertThrows( TransientException.class, session::close );
+                assertEquals( "Neo.TransientError.General.DatabaseUnavailable", e.code() );
+                assertEquals( "Unable to rollback", e.getMessage() );
+            }
+        }
+        finally
+        {
+            assertEquals( 0, server.exitStatus() );
+        }
     }
 
     @Test
-    void shouldThrowCommitErrorWhenTransactionClosed() throws Exception
+    void shouldStreamingRecordsInBatchesRx() throws Exception
     {
-        testTxCloseErrorPropagation( "commit_error.script", true, "Unable to commit" );
+        StubServer server = StubServer.start( "streaming_records_v4_rx.script", 9001 );
+        try
+        {
+            try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", INSECURE_CONFIG ) )
+            {
+                RxSession session = driver.rxSession();
+                RxResult result = session.run( "MATCH (n) RETURN n.name" );
+                Flux<String> records = Flux.from( result.records() ).limitRate( 2 ).map( record -> record.get( "n.name" ).asString() );
+                StepVerifier.create( records ).expectNext( "Bob", "Alice", "Tina" ).verifyComplete();
+            }
+        }
+        finally
+        {
+            assertEquals( 0, server.exitStatus() );
+        }
     }
 
     @Test
-    void shouldThrowRollbackErrorWhenTransactionClosed() throws Exception
+    void shouldStreamingRecordsInBatches() throws Exception
     {
-        testTxCloseErrorPropagation( "rollback_error.script", false, "Unable to rollback" );
+        StubServer server = StubServer.start( "streaming_records_v4.script", 9001 );
+        try
+        {
+            try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", insecureBuilder().withFetchSize( 2 ).build() ) )
+            {
+                Session session = driver.session();
+                Result result = session.run( "MATCH (n) RETURN n.name" );
+                List<String> list = result.list( record -> record.get( "n.name" ).asString() );
+                assertEquals( list, asList( "Bob", "Alice", "Tina" ) );
+            }
+        }
+        finally
+        {
+            assertEquals( 0, server.exitStatus() );
+        }
     }
+
+    @Test
+    void shouldChangeFetchSize() throws Exception
+    {
+        StubServer server = StubServer.start( "streaming_records_v4.script", 9001 );
+        try
+        {
+            try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", INSECURE_CONFIG ) )
+            {
+                Session session = driver.session( builder().withFetchSize( 2 ).build() );
+                Result result = session.run( "MATCH (n) RETURN n.name" );
+                List<String> list = result.list( record -> record.get( "n.name" ).asString() );
+                assertEquals( list, asList( "Bob", "Alice", "Tina" ) );
+            }
+        }
+        finally
+        {
+            assertEquals( 0, server.exitStatus() );
+        }
+    }
+
+    @Test
+    void shouldOnlyPullRecordsWhenNeededSimpleSession() throws Exception
+    {
+        StubServer server = StubServer.start( "streaming_records_v4_buffering.script", 9001 );
+        try
+        {
+            try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", INSECURE_CONFIG ) )
+            {
+                Session session = driver.session( builder().withFetchSize( 2 ).build() );
+                Result result = session.run( "MATCH (n) RETURN n.name" );
+                ArrayList<String> resultList = new ArrayList<>();
+                result.forEachRemaining( ( rec ) -> resultList.add( rec.get( 0 ).asString() ) );
+
+                assertEquals( resultList, asList( "Bob", "Alice", "Tina", "Frank", "Daisy", "Clive" ) );
+            }
+        }
+        finally
+        {
+            assertEquals( 0, server.exitStatus() );
+        }
+    }
+
+    @Test
+    void shouldOnlyPullRecordsWhenNeededAsyncSession() throws Exception
+    {
+        StubServer server = StubServer.start( "streaming_records_v4_buffering.script", 9001 );
+        try
+        {
+            try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", INSECURE_CONFIG ) )
+            {
+                AsyncSession session = driver.asyncSession( builder().withFetchSize( 2 ).build() );
+
+                ArrayList<String> resultList = new ArrayList<>();
+
+                await( session.runAsync( "MATCH (n) RETURN n.name" )
+                              .thenCompose( resultCursor ->
+                                                    resultCursor.forEachAsync( record -> resultList.add( record.get( 0 ).asString() ) ) ) );
+
+                assertEquals( resultList, asList( "Bob", "Alice", "Tina", "Frank", "Daisy", "Clive" ) );
+            }
+        }
+        finally
+        {
+            assertEquals( 0, server.exitStatus() );
+        }
+    }
+
+    @Test
+    void shouldPullAllRecordsOnListAsyncWhenOverWatermark() throws Exception
+    {
+        StubServer server = StubServer.start( "streaming_records_v4_list_async.script", 9001 );
+        try
+        {
+            try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", INSECURE_CONFIG ) )
+            {
+                AsyncSession session = driver.asyncSession( builder().withFetchSize( 10 ).build() );
+
+                ResultCursor cursor = await( session.runAsync( "MATCH (n) RETURN n.name" ) );
+                List<String> records = await( cursor.listAsync( record -> record.get( 0 ).asString() ) );
+
+                assertEquals( records, asList( "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L" ) );
+            }
+        }
+        finally
+        {
+            assertEquals( 0, server.exitStatus() );
+        }
+    }
+
+    @Test
+    void shouldAllowPullAll() throws Exception
+    {
+        StubServer server = StubServer.start( "streaming_records_v4_all.script", 9001 );
+        try
+        {
+            try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", insecureBuilder().withFetchSize( -1 ).build() ) )
+            {
+                Session session = driver.session();
+                Result result = session.run( "MATCH (n) RETURN n.name" );
+                List<String> list = result.list( record -> record.get( "n.name" ).asString() );
+                assertEquals( list, asList( "Bob", "Alice", "Tina" ) );
+            }
+        }
+        finally
+        {
+            assertEquals( 0, server.exitStatus() );
+        }
+    }
+
+    @Test
+    void shouldThrowCommitErrorWhenTransactionCommit() throws Exception
+    {
+        testTxCloseErrorPropagation( "commit_error.script", Transaction::commit, "Unable to commit" );
+    }
+
+    @Test
+    void shouldThrowRollbackErrorWhenTransactionRollback() throws Exception
+    {
+        testTxCloseErrorPropagation( "rollback_error.script", Transaction::rollback, "Unable to rollback" );
+    }
+
+    @Test
+    void shouldThrowRollbackErrorWhenTransactionClose() throws Exception
+    {
+        testTxCloseErrorPropagation( "rollback_error.script", Transaction::close, "Unable to rollback" );
+    }
+
 
     @Test
     void shouldThrowCorrectErrorOnRunFailure() throws Throwable
     {
         StubServer server = StubServer.start( "database_shutdown.script", 9001 );
 
-        InternalBookmark bookmark = InternalBookmark.parse( "neo4j:bookmark:v1:tx0" );
+        Bookmark bookmark = InternalBookmark.parse( "neo4j:bookmark:v1:tx0" );
         try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", INSECURE_CONFIG );
                 Session session = driver.session( builder().withBookmarks( bookmark ).build() );
                 // has to enforce to flush BEGIN to have tx started.
                 Transaction transaction = session.beginTransaction() )
         {
             TransientException error = assertThrows( TransientException.class, () -> {
-                StatementResult result = transaction.run( "RETURN 1" );
+                Result result = transaction.run( "RETURN 1" );
                 result.consume();
             } );
             assertThat( error.code(), equalTo( "Neo.TransientError.General.DatabaseUnavailable" ) );
@@ -267,11 +452,10 @@ class DirectDriverBoltKitTest
                 Session session = driver.session() )
         {
             Transaction transaction = session.beginTransaction();
-            StatementResult result = transaction.run( "CREATE (n {name:'Bob'})" );
+            Result result = transaction.run( "CREATE (n {name:'Bob'})" );
             result.consume();
-            transaction.success();
 
-            TransientException error = assertThrows( TransientException.class, transaction::close );
+            TransientException error = assertThrows( TransientException.class, transaction::commit );
             assertThat( error.code(), equalTo( "Neo.TransientError.General.DatabaseUnavailable" ) );
         }
         finally
@@ -286,9 +470,9 @@ class DirectDriverBoltKitTest
         StubServer server = StubServer.start( "read_server_v4_read.script", 9001 );
 
         try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", INSECURE_CONFIG );
-                Session session = driver.session( builder().withDatabase( "myDatabase" ).withDefaultAccessMode( AccessMode.READ ).build() ) )
+                Session session = driver.session( builder().withDatabase( "mydatabase" ).withDefaultAccessMode( AccessMode.READ ).build() ) )
         {
-            final StatementResult result = session.run( "MATCH (n) RETURN n.name" );
+            final Result result = session.run( "MATCH (n) RETURN n.name" );
             result.consume();
         }
         finally
@@ -303,9 +487,9 @@ class DirectDriverBoltKitTest
         StubServer server = StubServer.start( "read_server_v4_read_tx.script", 9001 );
 
         try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", INSECURE_CONFIG );
-                Session session = driver.session( forDatabase( "myDatabase" ) ) )
+                Session session = driver.session( forDatabase( "mydatabase" ) ) )
         {
-            session.readTransaction( tx -> tx.run( "MATCH (n) RETURN n.name" ).summary() );
+            session.readTransaction( tx -> tx.run( "MATCH (n) RETURN n.name" ).consume() );
         }
         finally
         {
@@ -313,33 +497,18 @@ class DirectDriverBoltKitTest
         }
     }
 
-    private static void testTransactionCloseErrorPropagationWhenSessionClosed( String script, boolean commit,
-            String expectedErrorMessage ) throws Exception
+    @Test
+    void shouldDiscardIfPullNotFinished() throws Throwable
     {
-        StubServer server = StubServer.start( script, 9001 );
-        try
+        StubServer server = StubServer.start( "read_tx_v4_discard.script", 9001 );
+
+        try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", INSECURE_CONFIG ) )
         {
-            try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", INSECURE_CONFIG ) )
-            {
-                Session session = driver.session();
-
-                Transaction tx = session.beginTransaction();
-                StatementResult result = tx.run( "CREATE (n {name:'Alice'}) RETURN n.name AS name" );
-                assertEquals( "Alice", result.single().get( "name" ).asString() );
-
-                if ( commit )
-                {
-                    tx.success();
-                }
-                else
-                {
-                    tx.failure();
-                }
-
-                TransientException e = assertThrows( TransientException.class, session::close );
-                assertEquals( "Neo.TransientError.General.DatabaseUnavailable", e.code() );
-                assertEquals( expectedErrorMessage, e.getMessage() );
-            }
+            Flux<List<String>> keys = Flux.usingWhen(
+                    Mono.fromSupplier( driver::rxSession ),
+                    session -> session.readTransaction( tx -> tx.run( "UNWIND [1,2,3,4] AS a RETURN a" ).keys() ),
+                    RxSession::close );
+            StepVerifier.create( keys ).expectNext( singletonList( "a" ) ).verifyComplete();
         }
         finally
         {
@@ -347,7 +516,35 @@ class DirectDriverBoltKitTest
         }
     }
 
-    private static void testTxCloseErrorPropagation( String script, boolean commit, String expectedErrorMessage )
+    @Test
+    void shouldServerWithBoltV4SupportMultiDb() throws Throwable
+    {
+        StubServer server = StubServer.start( "support_multidb_v4.script", 9001 );
+        try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", INSECURE_CONFIG ) )
+        {
+            assertTrue( driver.supportsMultiDb() );
+        }
+        finally
+        {
+            assertEquals( 0, server.exitStatus() );
+        }
+    }
+
+    @Test
+    void shouldServerWithBoltV3NotSupportMultiDb() throws Throwable
+    {
+        StubServer server = StubServer.start( "support_multidb_v3.script", 9001 );
+        try ( Driver driver = GraphDatabase.driver( "bolt://localhost:9001", INSECURE_CONFIG ) )
+        {
+            assertFalse( driver.supportsMultiDb() );
+        }
+        finally
+        {
+            assertEquals( 0, server.exitStatus() );
+        }
+    }
+
+    private static void testTxCloseErrorPropagation( String script, Consumer<Transaction> txAction, String expectedErrorMessage )
             throws Exception
     {
         StubServer server = StubServer.start( script, 9001 );
@@ -357,19 +554,11 @@ class DirectDriverBoltKitTest
                   Session session = driver.session() )
             {
                 Transaction tx = session.beginTransaction();
-                StatementResult result = tx.run( "CREATE (n {name:'Alice'}) RETURN n.name AS name" );
+                Result result = tx.run( "CREATE (n {name:'Alice'}) RETURN n.name AS name" );
                 assertEquals( "Alice", result.single().get( "name" ).asString() );
 
-                if ( commit )
-                {
-                    tx.success();
-                }
-                else
-                {
-                    tx.failure();
-                }
+                TransientException e = assertThrows( TransientException.class, () -> txAction.accept( tx ) );
 
-                TransientException e = assertThrows( TransientException.class, tx::close );
                 assertEquals( "Neo.TransientError.General.DatabaseUnavailable", e.code() );
                 assertEquals( expectedErrorMessage, e.getMessage() );
             }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,16 +18,17 @@
  */
 package org.neo4j.driver;
 
+import org.reactivestreams.Subscription;
+
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 
 import org.neo4j.driver.async.AsyncSession;
-import org.neo4j.driver.internal.Bookmark;
 import org.neo4j.driver.reactive.RxSession;
 
 import static java.util.Objects.requireNonNull;
-import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.ABSENT_DB_NAME;
+import static org.neo4j.driver.internal.handlers.pulln.FetchSizeUtil.assertValidFetchSize;
 
 /**
  * The session configurations used to configure a session.
@@ -39,12 +40,14 @@ public class SessionConfig
     private final Iterable<Bookmark> bookmarks;
     private final AccessMode defaultAccessMode;
     private final String database;
+    private final Optional<Long> fetchSize;
 
     private SessionConfig( Builder builder )
     {
         this.bookmarks = builder.bookmarks;
         this.defaultAccessMode = builder.defaultAccessMode;
         this.database = builder.database;
+        this.fetchSize = builder.fetchSize;
     }
 
     /**
@@ -111,6 +114,15 @@ public class SessionConfig
         return Optional.ofNullable( database );
     }
 
+    /**
+     * This value if set, overrides the default fetch size set on {@link Config#fetchSize()}.
+     * @return an optional value of fetch size.
+     */
+    public Optional<Long> fetchSize()
+    {
+        return fetchSize;
+    }
+
     @Override
     public boolean equals( Object o )
     {
@@ -123,7 +135,8 @@ public class SessionConfig
             return false;
         }
         SessionConfig that = (SessionConfig) o;
-        return Objects.equals( bookmarks, that.bookmarks ) && defaultAccessMode == that.defaultAccessMode && database.equals( that.database );
+        return Objects.equals( bookmarks, that.bookmarks ) && defaultAccessMode == that.defaultAccessMode && Objects.equals( database, that.database )
+                && Objects.equals( fetchSize, that.fetchSize );
     }
 
     @Override
@@ -135,7 +148,8 @@ public class SessionConfig
     @Override
     public String toString()
     {
-        return "SessionParameters{" + "bookmarks=" + bookmarks + ", defaultAccessMode=" + defaultAccessMode + ", database='" + database + '\'' + '}';
+        return "SessionParameters{" + "bookmarks=" + bookmarks + ", defaultAccessMode=" + defaultAccessMode + ", database='" + database + '\'' +
+                ", fetchSize=" + fetchSize + '}';
     }
 
     /**
@@ -143,6 +157,7 @@ public class SessionConfig
      */
     public static class Builder
     {
+        private Optional<Long> fetchSize = Optional.empty();
         private Iterable<Bookmark> bookmarks = null;
         private AccessMode defaultAccessMode = AccessMode.WRITE;
         private String database = null;
@@ -223,16 +238,33 @@ public class SessionConfig
         public Builder withDatabase( String database )
         {
             requireNonNull( database, "Database name should not be null." );
-            if ( ABSENT_DB_NAME.equals( database ) )
+            if ( database.isEmpty() )
             {
-                // Disallow users to use bolt internal value directly. To users, this is totally an illegal database name.
+                // Empty string is an illegal database name. Fail fast on client.
                 throw new IllegalArgumentException( String.format( "Illegal database name '%s'.", database ) );
             }
-            // The database name is normalized to lowercase on the server side.
-            // The client in theory shall not perform any normalization at all.
-            // However as this name is also used in routing table registry as the map's key to find the routing table for the given database,
-            // to avoid multiple routing tables for the same database, we perform a client side normalization.
-            this.database = database.toLowerCase();
+            this.database = database;
+            return this;
+        }
+
+        /**
+         * Specify how many records to fetch in each batch for this session.
+         * This config will overrides the default value set on {@link Config#fetchSize()}.
+         * This config is only valid when the driver is used with servers that support Bolt V4 (Server version 4.0 and later).
+         *
+         * Bolt V4 enables pulling records in batches to allow client to take control of data population and apply back pressure to server.
+         * This config specifies the default fetch size for all query runs using {@link Session} and {@link AsyncSession}.
+         * By default, the value is set to {@code 1000}.
+         * Use {@code -1} to disables back pressure and config client to pull all records at once after each run.
+         *
+         * This config only applies to run result obtained via {@link Session} and {@link AsyncSession}.
+         * As with {@link RxSession}, the batch size is provided via {@link Subscription#request(long)} instead.
+         * @param size the default record fetch size when pulling records in batches using Bolt V4.
+         * @return this builder
+         */
+        public Builder withFetchSize( long size )
+        {
+            this.fetchSize = Optional.of( assertValidFetchSize( size ) );
             return this;
         }
 

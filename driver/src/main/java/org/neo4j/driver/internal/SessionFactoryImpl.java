@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,18 +18,17 @@
  */
 package org.neo4j.driver.internal;
 
+import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 
 import org.neo4j.driver.AccessMode;
 import org.neo4j.driver.Config;
 import org.neo4j.driver.Logging;
 import org.neo4j.driver.SessionConfig;
-import org.neo4j.driver.internal.async.NetworkSession;
 import org.neo4j.driver.internal.async.LeakLoggingNetworkSession;
+import org.neo4j.driver.internal.async.NetworkSession;
 import org.neo4j.driver.internal.retry.RetryLogic;
 import org.neo4j.driver.internal.spi.ConnectionProvider;
-
-import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.ABSENT_DB_NAME;
 
 public class SessionFactoryImpl implements SessionFactory
 {
@@ -37,6 +36,7 @@ public class SessionFactoryImpl implements SessionFactory
     private final RetryLogic retryLogic;
     private final Logging logging;
     private final boolean leakedSessionsLoggingEnabled;
+    private final long defaultFetchSize;
 
     SessionFactoryImpl( ConnectionProvider connectionProvider, RetryLogic retryLogic, Config config )
     {
@@ -44,14 +44,27 @@ public class SessionFactoryImpl implements SessionFactory
         this.leakedSessionsLoggingEnabled = config.logLeakedSessions();
         this.retryLogic = retryLogic;
         this.logging = config.logging();
+        this.defaultFetchSize = config.fetchSize();
     }
 
     @Override
     public NetworkSession newInstance( SessionConfig sessionConfig )
     {
         BookmarkHolder bookmarkHolder = new DefaultBookmarkHolder( InternalBookmark.from( sessionConfig.bookmarks() ) );
-        return createSession( connectionProvider, retryLogic, sessionConfig.database().orElse( ABSENT_DB_NAME ),
-                sessionConfig.defaultAccessMode(), bookmarkHolder, logging );
+        return createSession( connectionProvider, retryLogic, parseDatabaseName( sessionConfig ),
+                sessionConfig.defaultAccessMode(), bookmarkHolder, parseFetchSize( sessionConfig ), logging );
+    }
+
+    private long parseFetchSize( SessionConfig sessionConfig )
+    {
+        return sessionConfig.fetchSize().orElse( defaultFetchSize );
+    }
+
+    private DatabaseName parseDatabaseName( SessionConfig sessionConfig )
+    {
+        return sessionConfig.database()
+                .flatMap( name -> Optional.of( DatabaseNameUtil.database( name ) ) )
+                .orElse( DatabaseNameUtil.defaultDatabase() );
     }
 
     @Override
@@ -66,6 +79,12 @@ public class SessionFactoryImpl implements SessionFactory
         return connectionProvider.close();
     }
 
+    @Override
+    public CompletionStage<Boolean> supportsMultiDb()
+    {
+        return connectionProvider.supportsMultiDb();
+    }
+
     /**
      * Get the underlying connection provider.
      * <p>
@@ -78,11 +97,11 @@ public class SessionFactoryImpl implements SessionFactory
         return connectionProvider;
     }
 
-    private NetworkSession createSession( ConnectionProvider connectionProvider, RetryLogic retryLogic, String databaseName, AccessMode mode,
-            BookmarkHolder bookmarkHolder, Logging logging )
+    private NetworkSession createSession( ConnectionProvider connectionProvider, RetryLogic retryLogic, DatabaseName databaseName, AccessMode mode,
+            BookmarkHolder bookmarkHolder, long fetchSize, Logging logging )
     {
         return leakedSessionsLoggingEnabled
-               ? new LeakLoggingNetworkSession( connectionProvider, retryLogic, databaseName, mode, bookmarkHolder, logging )
-               : new NetworkSession( connectionProvider, retryLogic, databaseName, mode, bookmarkHolder, logging );
+               ? new LeakLoggingNetworkSession( connectionProvider, retryLogic, databaseName, mode, bookmarkHolder, fetchSize, logging )
+               : new NetworkSession( connectionProvider, retryLogic, databaseName, mode, bookmarkHolder, fetchSize, logging );
     }
 }

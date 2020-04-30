@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -24,8 +24,8 @@ import java.util.concurrent.Executor;
 import java.util.function.Function;
 
 import org.neo4j.driver.Session;
-import org.neo4j.driver.Statement;
-import org.neo4j.driver.StatementRunner;
+import org.neo4j.driver.Query;
+import org.neo4j.driver.QueryRunner;
 
 /**
  * Logical container for an atomic unit of work.
@@ -39,7 +39,7 @@ import org.neo4j.driver.StatementRunner;
  * {@code
  * session.beginTransactionAsync()
  *        .thenCompose(tx ->
- *               tx.runAsync("CREATE (a:Person {name: {x}})", parameters("x", "Alice"))
+ *               tx.runAsync("CREATE (a:Person {name: $name})", parameters("name", "Alice"))
  *                 .exceptionally(e -> {
  *                    e.printStackTrace();
  *                    return null;
@@ -49,13 +49,13 @@ import org.neo4j.driver.StatementRunner;
  * }
  * </pre>
  * Async calls are: {@link #commitAsync()}, {@link #rollbackAsync()} and various overloads of
- * {@link #runAsync(Statement)}.
+ * {@link #runAsync(Query)}.
  *
  * @see Session#run
- * @see StatementRunner
- * @since 2.0
+ * @see QueryRunner
+ * @since 4.0
  */
-public interface AsyncTransaction extends AsyncStatementRunner
+public interface AsyncTransaction extends AsyncQueryRunner
 {
     /**
      * Commit this transaction in asynchronous fashion. This operation is typically executed as part of the

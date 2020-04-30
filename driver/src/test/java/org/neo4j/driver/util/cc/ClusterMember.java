@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,10 +18,13 @@
  */
 package org.neo4j.driver.util.cc;
 
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.Scanner;
 
 import org.neo4j.driver.internal.BoltServerAddress;
 
@@ -61,6 +64,16 @@ public class ClusterMember
     public Path getPath()
     {
         return path;
+    }
+
+    public void dumpDebugLog() throws FileNotFoundException
+    {
+        Scanner input = new Scanner( new File( path.toAbsolutePath().toString() + "/logs/debug.log" ));
+
+        while (input.hasNextLine())
+        {
+            System.out.println(input.nextLine());
+        }
     }
 
     @Override

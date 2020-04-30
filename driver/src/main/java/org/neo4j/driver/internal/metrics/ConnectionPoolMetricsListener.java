@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -73,5 +73,68 @@ public interface ConnectionPoolMetricsListener
      * @param inUseEvent
      */
     void released( ListenerEvent inUseEvent );
+
+    ConnectionPoolMetricsListener DEV_NULL_POOL_METRICS_LISTENER = new ConnectionPoolMetricsListener()
+    {
+        @Override
+        public void beforeCreating( ListenerEvent listenerEvent )
+        {
+
+        }
+
+        @Override
+        public void afterCreated( ListenerEvent listenerEvent )
+        {
+
+        }
+
+        @Override
+        public void afterFailedToCreate()
+        {
+
+        }
+
+        @Override
+        public void afterClosed()
+        {
+
+        }
+
+        @Override
+        public void beforeAcquiringOrCreating( ListenerEvent acquireEvent )
+        {
+
+        }
+
+        @Override
+        public void afterAcquiringOrCreating()
+        {
+
+        }
+
+        @Override
+        public void afterAcquiredOrCreated( ListenerEvent acquireEvent )
+        {
+
+        }
+
+        @Override
+        public void afterTimedOutToAcquireOrCreate()
+        {
+
+        }
+
+        @Override
+        public void acquired( ListenerEvent inUseEvent )
+        {
+
+        }
+
+        @Override
+        public void released( ListenerEvent inUseEvent )
+        {
+
+        }
+    };
 }
 

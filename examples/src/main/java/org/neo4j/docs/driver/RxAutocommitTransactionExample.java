@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -19,12 +19,15 @@
 package org.neo4j.docs.driver;
 
 import io.reactivex.Flowable;
+// tag::rx-autocommit-transaction-import[]
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.util.Collections;
 import java.util.Map;
 
 import org.neo4j.driver.reactive.RxSession;
+// end::rx-autocommit-transaction-import[]
 
 public class RxAutocommitTransactionExample extends BaseApplication
 {
@@ -33,27 +36,31 @@ public class RxAutocommitTransactionExample extends BaseApplication
         super( uri, user, password );
     }
 
-    public Flux<String> readProductTitlesReactor()
+    // tag::rx-autocommit-transaction[]
+    public Flux<String> readProductTitles()
     {
-        // tag::reactor-autocommit-transaction[]
         String query = "MATCH (p:Product) WHERE p.id = $id RETURN p.title";
         Map<String,Object> parameters = Collections.singletonMap( "id", 0 );
 
-        return Flux.using( driver::rxSession,
+        return Flux.usingWhen( Mono.fromSupplier( driver::rxSession ),
                 session -> Flux.from( session.run( query, parameters ).records() ).map( record -> record.get( 0 ).asString() ),
                 RxSession::close );
-        // end::reactor-autocommit-transaction[]
     }
+    // end::rx-autocommit-transaction[]
 
+    // tag::RxJava-autocommit-transaction[]
     public Flowable<String> readProductTitlesRxJava()
     {
-        // tag::RxJava-autocommit-transaction[]
         String query = "MATCH (p:Product) WHERE p.id = $id RETURN p.title";
         Map<String,Object> parameters = Collections.singletonMap( "id", 0 );
 
-        return Flowable.using( driver::rxSession,
-                session -> Flowable.fromPublisher( session.run( query, parameters ).records() ).map( record -> record.get( 0 ).asString() ),
-                RxSession::close );
-        // end::RxJava-autocommit-transaction[]
+        RxSession session = driver.rxSession();
+        return Flowable.fromPublisher( session.run( query, parameters ).records() ).map( record -> record.get( 0 ).asString() )
+                // It is okay to skip session.close() when publisher is completed successfully or cancelled
+                .onErrorResumeNext( error -> {
+                    // We still rethrows the original error here. In a real application, you may want to handle the error directly here.
+                    return Flowable.<String>fromPublisher( session.close() ).concatWith( Flowable.error( error ) );
+                } );
     }
+    // end::RxJava-autocommit-transaction[]
 }

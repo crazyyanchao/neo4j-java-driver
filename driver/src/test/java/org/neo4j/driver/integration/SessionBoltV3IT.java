@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -30,20 +30,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
 
+import org.neo4j.driver.Bookmark;
 import org.neo4j.driver.Driver;
+import org.neo4j.driver.Record;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Transaction;
 import org.neo4j.driver.TransactionConfig;
 import org.neo4j.driver.async.AsyncSession;
-import org.neo4j.driver.async.StatementResultCursor;
+import org.neo4j.driver.async.ResultCursor;
 import org.neo4j.driver.exceptions.TransientException;
-import org.neo4j.driver.internal.Bookmark;
 import org.neo4j.driver.internal.cluster.RoutingSettings;
 import org.neo4j.driver.internal.messaging.Message;
 import org.neo4j.driver.internal.messaging.request.GoodbyeMessage;
 import org.neo4j.driver.internal.messaging.request.HelloMessage;
 import org.neo4j.driver.internal.retry.RetrySettings;
+import org.neo4j.driver.internal.security.SecurityPlanImpl;
 import org.neo4j.driver.internal.util.EnabledOnNeo4jWith;
 import org.neo4j.driver.internal.util.MessageRecordingDriverFactory;
 import org.neo4j.driver.summary.ResultSummary;
@@ -60,8 +62,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.neo4j.driver.Config.defaultConfig;
 import static org.neo4j.driver.internal.util.Neo4jFeature.BOLT_V3;
+import static org.neo4j.driver.util.TestUtil.TX_TIMEOUT_TEST_TIMEOUT;
 import static org.neo4j.driver.util.TestUtil.await;
 
 @EnabledOnNeo4jWith( BOLT_V3 )
@@ -84,7 +88,7 @@ class SessionBoltV3IT
                 .build();
 
         // call listTransactions procedure that should list itself with the specified metadata
-        StatementResult result = driver.session().run( "CALL dbms.listTransactions()", config );
+        Result result = driver.session().run( "CALL dbms.listTransactions()", config );
         Map<String,Object> receivedMetadata = result.single().get( "metaData" ).asMap();
 
         assertEquals( metadata, receivedMetadata );
@@ -104,7 +108,7 @@ class SessionBoltV3IT
         // call listTransactions procedure that should list itself with the specified metadata
         CompletionStage<Map<String,Object>> metadataFuture = driver.asyncSession()
                 .runAsync( "CALL dbms.listTransactions()", config )
-                .thenCompose( StatementResultCursor::singleAsync )
+                .thenCompose( ResultCursor::singleAsync )
                 .thenApply( record -> record.get( "metaData" ).asMap() );
 
         assertEquals( metadata, await( metadataFuture ) );
@@ -124,15 +128,14 @@ class SessionBoltV3IT
                 // lock dummy node but keep the transaction open
                 otherTx.run( "MATCH (n:Node) SET n.prop = 1" ).consume();
 
-                TransactionConfig config = TransactionConfig.builder()
-                        .withTimeout( ofMillis( 1 ) )
-                        .build();
+                assertTimeoutPreemptively( TX_TIMEOUT_TEST_TIMEOUT, () -> {
+                    TransactionConfig config = TransactionConfig.builder().withTimeout( ofMillis( 1 ) ).build();
 
-                // run a query in an auto-commit transaction with timeout and try to update the locked dummy node
-                TransientException error = assertThrows( TransientException.class,
-                        () -> session.run( "MATCH (n:Node) SET n.prop = 2", config ).consume() );
-
-                assertThat( error.getMessage(), containsString( "terminated" ) );
+                    // run a query in an auto-commit transaction with timeout and try to update the locked dummy node
+                    TransientException error = assertThrows( TransientException.class,
+                            () -> session.run( "MATCH (n:Node) SET n.prop = 2", config ).consume() );
+                    assertThat( error.getMessage(), containsString( "terminated" ) );
+                } );
             }
         }
     }
@@ -151,17 +154,19 @@ class SessionBoltV3IT
                 // lock dummy node but keep the transaction open
                 otherTx.run( "MATCH (n:Node) SET n.prop = 1" ).consume();
 
-                TransactionConfig config = TransactionConfig.builder()
-                        .withTimeout( ofMillis( 1 ) )
-                        .build();
+                assertTimeoutPreemptively( TX_TIMEOUT_TEST_TIMEOUT, () -> {
+                    TransactionConfig config = TransactionConfig.builder()
+                            .withTimeout( ofMillis( 1 ) )
+                            .build();
 
-                // run a query in an auto-commit transaction with timeout and try to update the locked dummy node
-                CompletionStage<ResultSummary> resultFuture = asyncSession.runAsync( "MATCH (n:Node) SET n.prop = 2", config )
-                        .thenCompose( StatementResultCursor::consumeAsync );
+                    // run a query in an auto-commit transaction with timeout and try to update the locked dummy node
+                    CompletionStage<ResultSummary> resultFuture = asyncSession.runAsync( "MATCH (n:Node) SET n.prop = 2", config )
+                            .thenCompose( ResultCursor::consumeAsync );
 
-                TransientException error = assertThrows( TransientException.class, () -> await( resultFuture ) );
+                    TransientException error = assertThrows( TransientException.class, () -> await( resultFuture ) );
 
-                MatcherAssert.assertThat( error.getMessage(), containsString( "terminated" ) );
+                    MatcherAssert.assertThat( error.getMessage(), containsString( "terminated" ) );
+                } );
             }
         }
     }
@@ -216,7 +221,7 @@ class SessionBoltV3IT
     }
 
     @Test
-    void shouldUseBookmarksForAutoCommitAndExplicitTransactions()
+    void shouldUseBookmarksForAutoCommitAndUnmanagedTransactions()
     {
         Session session = driver.session();
         Bookmark initialBookmark = session.lastBookmark();
@@ -224,7 +229,7 @@ class SessionBoltV3IT
         try ( Transaction tx = session.beginTransaction() )
         {
             tx.run( "CREATE ()" );
-            tx.success();
+            tx.commit();
         }
         Bookmark bookmark1 = session.lastBookmark();
         assertNotNull( bookmark1 );
@@ -239,7 +244,7 @@ class SessionBoltV3IT
         try ( Transaction tx = session.beginTransaction() )
         {
             tx.run( "CREATE ()" );
-            tx.success();
+            tx.commit();
         }
         Bookmark bookmark3 = session.lastBookmark();
         assertNotNull( bookmark3 );
@@ -279,7 +284,8 @@ class SessionBoltV3IT
         int txCount = 13;
         MessageRecordingDriverFactory driverFactory = new MessageRecordingDriverFactory();
 
-        try ( Driver otherDriver = driverFactory.newInstance( driver.uri(), driver.authToken(), RoutingSettings.DEFAULT, RetrySettings.DEFAULT, defaultConfig() ) )
+        try ( Driver otherDriver = driverFactory.newInstance( driver.uri(), driver.authToken(), RoutingSettings.DEFAULT, RetrySettings.DEFAULT, defaultConfig(),
+                                                              SecurityPlanImpl.insecure() ) )
         {
             List<Session> sessions = new ArrayList<>();
             List<Transaction> txs = new ArrayList<>();
@@ -297,8 +303,7 @@ class SessionBoltV3IT
                 Transaction tx = txs.get( i );
 
                 tx.run( "CREATE ()" );
-                tx.success();
-                tx.close();
+                tx.commit();
                 session.close();
             }
         }
@@ -327,12 +332,11 @@ class SessionBoltV3IT
                 .build();
 
         // call listTransactions procedure that should list itself with the specified metadata
-        CompletionStage<StatementResultCursor> cursorFuture =
-                read ? asyncSession.readTransactionAsync( tx -> tx.runAsync( "CALL dbms.listTransactions()" ), config )
-                     : asyncSession.writeTransactionAsync( tx -> tx.runAsync( "CALL dbms.listTransactions()" ), config );
+        CompletionStage<Record> singleFuture =
+                read ? asyncSession.readTransactionAsync( tx -> tx.runAsync( "CALL dbms.listTransactions()" ).thenCompose( ResultCursor::singleAsync ), config )
+                     : asyncSession.writeTransactionAsync( tx -> tx.runAsync( "CALL dbms.listTransactions()" ).thenCompose( ResultCursor::singleAsync ), config );
 
-        CompletionStage<Map<String,Object>> metadataFuture = cursorFuture.thenCompose( StatementResultCursor::singleAsync )
-                .thenApply( record -> record.get( "metaData" ).asMap() );
+        CompletionStage<Map<String,Object>> metadataFuture = singleFuture.thenApply( record -> record.get( "metaData" ).asMap() );
 
         assertEquals( metadata, await( metadataFuture ) );
     }
@@ -350,10 +354,10 @@ class SessionBoltV3IT
                 .build();
 
         // call listTransactions procedure that should list itself with the specified metadata
-        StatementResult result = read ? session.readTransaction( tx -> tx.run( "CALL dbms.listTransactions()" ), config )
-                                      : session.writeTransaction( tx -> tx.run( "CALL dbms.listTransactions()" ), config );
+        Record single = read ? session.readTransaction( tx -> tx.run( "CALL dbms.listTransactions()" ).single(), config )
+                             : session.writeTransaction( tx -> tx.run( "CALL dbms.listTransactions()" ).single(), config );
 
-        Map<String,Object> receivedMetadata = result.single().get( "metaData" ).asMap();
+        Map<String,Object> receivedMetadata = single.get( "metaData" ).asMap();
 
         assertEquals( metadata, receivedMetadata );
     }

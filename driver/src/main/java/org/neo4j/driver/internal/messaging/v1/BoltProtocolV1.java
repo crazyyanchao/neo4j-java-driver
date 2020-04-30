@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -26,20 +26,22 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-import org.neo4j.driver.Statement;
+import org.neo4j.driver.Bookmark;
+import org.neo4j.driver.Query;
 import org.neo4j.driver.TransactionConfig;
 import org.neo4j.driver.Value;
 import org.neo4j.driver.exceptions.ClientException;
 import org.neo4j.driver.internal.BookmarkHolder;
+import org.neo4j.driver.internal.DatabaseName;
 import org.neo4j.driver.internal.InternalBookmark;
-import org.neo4j.driver.internal.async.ExplicitTransaction;
+import org.neo4j.driver.internal.async.UnmanagedTransaction;
 import org.neo4j.driver.internal.cursor.AsyncResultCursorOnlyFactory;
-import org.neo4j.driver.internal.cursor.StatementResultCursorFactory;
-import org.neo4j.driver.internal.handlers.AbstractPullAllResponseHandler;
+import org.neo4j.driver.internal.cursor.ResultCursorFactory;
 import org.neo4j.driver.internal.handlers.BeginTxResponseHandler;
 import org.neo4j.driver.internal.handlers.CommitTxResponseHandler;
 import org.neo4j.driver.internal.handlers.InitResponseHandler;
 import org.neo4j.driver.internal.handlers.NoOpResponseHandler;
+import org.neo4j.driver.internal.handlers.PullAllResponseHandler;
 import org.neo4j.driver.internal.handlers.PullHandlers;
 import org.neo4j.driver.internal.handlers.RollbackTxResponseHandler;
 import org.neo4j.driver.internal.handlers.RunResponseHandler;
@@ -99,7 +101,7 @@ public class BoltProtocolV1 implements BoltProtocol
     }
 
     @Override
-    public CompletionStage<Void> beginTransaction( Connection connection, InternalBookmark bookmark, TransactionConfig config )
+    public CompletionStage<Void> beginTransaction( Connection connection, Bookmark bookmark, TransactionConfig config )
     {
         try
         {
@@ -132,9 +134,9 @@ public class BoltProtocolV1 implements BoltProtocol
 
 
     @Override
-    public CompletionStage<InternalBookmark> commitTransaction( Connection connection )
+    public CompletionStage<Bookmark> commitTransaction( Connection connection )
     {
-        CompletableFuture<InternalBookmark> commitFuture = new CompletableFuture<>();
+        CompletableFuture<Bookmark> commitFuture = new CompletableFuture<>();
 
         ResponseHandler pullAllHandler = new CommitTxResponseHandler( commitFuture );
         connection.writeAndFlush(
@@ -158,19 +160,19 @@ public class BoltProtocolV1 implements BoltProtocol
     }
 
     @Override
-    public StatementResultCursorFactory runInAutoCommitTransaction( Connection connection, Statement statement,
-            BookmarkHolder bookmarkHolder, TransactionConfig config, boolean waitForRunResponse )
+    public ResultCursorFactory runInAutoCommitTransaction(Connection connection, Query query, BookmarkHolder bookmarkHolder,
+                                                          TransactionConfig config, boolean waitForRunResponse, long ignored )
     {
         // bookmarks are ignored for auto-commit transactions in this version of the protocol
         verifyBeforeTransaction( config, connection.databaseName() );
-        return buildResultCursorFactory( connection, statement, null, waitForRunResponse );
+        return buildResultCursorFactory( connection, query, null, waitForRunResponse );
     }
 
     @Override
-    public StatementResultCursorFactory runInExplicitTransaction( Connection connection, Statement statement, ExplicitTransaction tx,
-            boolean waitForRunResponse )
+    public ResultCursorFactory runInUnmanagedTransaction(Connection connection, Query query, UnmanagedTransaction tx,
+                                                         boolean waitForRunResponse, long ignored )
     {
-        return buildResultCursorFactory( connection, statement, tx, waitForRunResponse );
+        return buildResultCursorFactory( connection, query, tx, waitForRunResponse );
     }
 
     @Override
@@ -179,20 +181,20 @@ public class BoltProtocolV1 implements BoltProtocol
         return VERSION;
     }
 
-    private static StatementResultCursorFactory buildResultCursorFactory( Connection connection, Statement statement,
-            ExplicitTransaction tx, boolean waitForRunResponse )
+    private static ResultCursorFactory buildResultCursorFactory(Connection connection, Query query,
+                                                                UnmanagedTransaction tx, boolean waitForRunResponse )
     {
-        String query = statement.text();
-        Map<String,Value> params = statement.parameters().asMap( ofValue() );
+        String queryText = query.text();
+        Map<String,Value> params = query.parameters().asMap( ofValue() );
 
-        RunMessage runMessage = new RunMessage( query, params );
+        RunMessage runMessage = new RunMessage( queryText, params );
         RunResponseHandler runHandler = new RunResponseHandler( METADATA_EXTRACTOR );
-        AbstractPullAllResponseHandler pullAllHandler = PullHandlers.newBoltV1PullAllHandler( statement, runHandler, connection, tx );
+        PullAllResponseHandler pullAllHandler = PullHandlers.newBoltV1PullAllHandler( query, runHandler, connection, tx );
 
         return new AsyncResultCursorOnlyFactory( connection, runMessage, runHandler, pullAllHandler, waitForRunResponse );
     }
 
-    private void verifyBeforeTransaction( TransactionConfig config, String databaseName )
+    private void verifyBeforeTransaction( TransactionConfig config, DatabaseName databaseName )
     {
         if ( config != null && !config.isEmpty() )
         {
@@ -212,7 +214,7 @@ public class BoltProtocolV1 implements BoltProtocol
         private static final String BOOKMARK_PREFIX = "neo4j:bookmark:v1:tx";
         private static final long UNKNOWN_BOOKMARK_VALUE = -1;
 
-        static Map<String,Value> asBeginTransactionParameters( InternalBookmark bookmark )
+        static Map<String,Value> asBeginTransactionParameters( Bookmark bookmark )
         {
             if ( bookmark.isEmpty() )
             {

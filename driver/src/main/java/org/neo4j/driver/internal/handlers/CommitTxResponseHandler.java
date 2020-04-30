@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -22,6 +22,7 @@ import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
+import org.neo4j.driver.Bookmark;
 import org.neo4j.driver.Value;
 import org.neo4j.driver.internal.InternalBookmark;
 import org.neo4j.driver.internal.spi.ResponseHandler;
@@ -30,9 +31,9 @@ import static java.util.Objects.requireNonNull;
 
 public class CommitTxResponseHandler implements ResponseHandler
 {
-    private final CompletableFuture<InternalBookmark> commitFuture;
+    private final CompletableFuture<Bookmark> commitFuture;
 
-    public CommitTxResponseHandler( CompletableFuture<InternalBookmark> commitFuture )
+    public CommitTxResponseHandler( CompletableFuture<Bookmark> commitFuture )
     {
         this.commitFuture = requireNonNull( commitFuture );
     }

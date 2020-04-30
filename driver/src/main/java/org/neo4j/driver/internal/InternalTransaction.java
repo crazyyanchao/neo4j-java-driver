@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,31 +18,33 @@
  */
 package org.neo4j.driver.internal;
 
-import org.neo4j.driver.Statement;
-import org.neo4j.driver.StatementResult;
+import org.neo4j.driver.Query;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Transaction;
-import org.neo4j.driver.async.StatementResultCursor;
-import org.neo4j.driver.internal.async.ExplicitTransaction;
+import org.neo4j.driver.async.ResultCursor;
+import org.neo4j.driver.internal.async.UnmanagedTransaction;
 import org.neo4j.driver.internal.util.Futures;
 
-public class InternalTransaction extends AbstractStatementRunner implements Transaction
+public class InternalTransaction extends AbstractQueryRunner implements Transaction
 {
-    private final ExplicitTransaction tx;
-    public InternalTransaction( ExplicitTransaction tx )
+    private final UnmanagedTransaction tx;
+    public InternalTransaction( UnmanagedTransaction tx )
     {
         this.tx = tx;
     }
 
     @Override
-    public void success()
+    public void commit()
     {
-        tx.success();
+        Futures.blockingGet( tx.commitAsync(),
+                () -> terminateConnectionOnThreadInterrupt( "Thread interrupted while committing the transaction" ) );
     }
 
     @Override
-    public void failure()
+    public void rollback()
     {
-        tx.failure();
+        Futures.blockingGet( tx.rollbackAsync(),
+                () -> terminateConnectionOnThreadInterrupt( "Thread interrupted while rolling back the transaction" ) );
     }
 
     @Override
@@ -53,11 +55,11 @@ public class InternalTransaction extends AbstractStatementRunner implements Tran
     }
 
     @Override
-    public StatementResult run( Statement statement )
+    public Result run(Query query)
     {
-        StatementResultCursor cursor = Futures.blockingGet( tx.runAsync( statement, false ),
+        ResultCursor cursor = Futures.blockingGet( tx.runAsync(query, false ),
                 () -> terminateConnectionOnThreadInterrupt( "Thread interrupted while running query in transaction" ) );
-        return new InternalStatementResult( tx.connection(), cursor );
+        return new InternalResult( tx.connection(), cursor );
     }
 
     @Override

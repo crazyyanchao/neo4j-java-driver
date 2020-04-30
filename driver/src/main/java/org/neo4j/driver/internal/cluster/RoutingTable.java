@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -22,6 +22,7 @@ import java.util.Set;
 
 import org.neo4j.driver.internal.BoltServerAddress;
 import org.neo4j.driver.AccessMode;
+import org.neo4j.driver.internal.DatabaseName;
 
 public interface RoutingTable
 {
@@ -41,7 +42,7 @@ public interface RoutingTable
 
     Set<BoltServerAddress> servers();
 
-    String database();
+    DatabaseName database();
 
     void forgetWriter( BoltServerAddress toRemove );
 

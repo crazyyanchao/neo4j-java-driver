@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2019 "Neo4j,"
+ * Copyright (c) 2002-2020 "Neo4j,"
  * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
@@ -18,29 +18,31 @@
  */
 package org.neo4j.driver;
 
-import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Arrays;
 import java.util.List;
-
-import org.neo4j.driver.internal.Bookmark;
+import java.util.Optional;
+import java.util.stream.Stream;
 
 import static java.util.Collections.emptyList;
 import static org.hamcrest.CoreMatchers.equalTo;
+import static org.hamcrest.CoreMatchers.startsWith;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.neo4j.driver.SessionConfig.builder;
 import static org.neo4j.driver.SessionConfig.defaultConfig;
 import static org.neo4j.driver.internal.InternalBookmark.parse;
-import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.ABSENT_DB_NAME;
 
 class SessionConfigTest
 {
@@ -49,9 +51,10 @@ class SessionConfigTest
     {
         SessionConfig config = defaultConfig();
 
-        Assert.assertEquals( AccessMode.WRITE, config.defaultAccessMode() );
+        assertEquals( AccessMode.WRITE, config.defaultAccessMode() );
         assertFalse( config.database().isPresent() );
         assertNull( config.bookmarks() );
+        assertFalse( config.fetchSize().isPresent() );
     }
 
     @ParameterizedTest
@@ -63,7 +66,7 @@ class SessionConfigTest
     }
 
     @ParameterizedTest
-    @ValueSource( strings = {"foo", "data", "my awesome database", " "} )
+    @ValueSource( strings = {"foo", "data", "my awesome database", "    "} )
     void shouldChangeDatabaseName( String databaseName )
     {
         SessionConfig config = builder().withDatabase( databaseName ).build();
@@ -78,11 +81,27 @@ class SessionConfigTest
     }
 
     @ParameterizedTest
-    @ValueSource( strings = {"", ABSENT_DB_NAME} )
+    @MethodSource("someConfigs")
+    void nullDatabaseNameMustNotBreakEquals(SessionConfig config1, SessionConfig config2, boolean expectedEquals) {
+
+        assertEquals( config1.equals( config2 ), expectedEquals );
+    }
+
+    static Stream<Arguments> someConfigs() {
+        return Stream.of(
+                arguments( SessionConfig.builder().build(), SessionConfig.builder().build(), true ),
+                arguments( SessionConfig.builder().withDatabase( "a" ).build(), SessionConfig.builder().build(), false ),
+                arguments( SessionConfig.builder().build(), SessionConfig.builder().withDatabase( "a" ).build(), false ),
+                arguments( SessionConfig.builder().withDatabase( "a" ).build(), SessionConfig.builder().withDatabase( "a" ).build(), true )
+        );
+    }
+
+    @ParameterizedTest
+    @ValueSource( strings = {""} )
     void shouldForbiddenEmptyStringDatabaseName( String databaseName ) throws Throwable
     {
         IllegalArgumentException error = assertThrows( IllegalArgumentException.class, () -> builder().withDatabase( databaseName ) );
-        assertThat( error.getMessage(), equalTo( "Illegal database name ''." ) );
+        assertThat( error.getMessage(), startsWith( "Illegal database name " ) );
     }
 
     @Test
@@ -127,5 +146,29 @@ class SessionConfigTest
 
         SessionConfig config2 = builder().withBookmarks( Arrays.asList( one, two, null ) ).build();
         assertThat( config2.bookmarks(), equalTo( Arrays.asList( one, two, null ) ) );
+    }
+
+    @ParameterizedTest
+    @ValueSource( longs = {100, 1, 1000, Long.MAX_VALUE, -1} )
+    void shouldChangeFetchSize( long value ) throws Throwable
+    {
+        SessionConfig config = builder().withFetchSize( value ).build();
+        assertThat( config.fetchSize(), equalTo( Optional.of( value ) ) );
+    }
+
+    @ParameterizedTest
+    @ValueSource( longs = {0, -100, -2} )
+    void shouldErrorWithIllegalFetchSize( long value ) throws Throwable
+    {
+        assertThrows( IllegalArgumentException.class, () -> builder().withFetchSize( value ).build() );
+    }
+
+    @Test
+    void shouldTwoConfigBeEqual() throws Throwable
+    {
+        SessionConfig config1 = builder().withFetchSize( 100 ).build();
+        SessionConfig config2 = builder().withFetchSize( 100 ).build();
+
+        assertEquals( config1, config2 );
     }
 }
