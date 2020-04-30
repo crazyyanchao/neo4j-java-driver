@@ -18,15 +18,14 @@
  */
 package org.neo4j.driver.internal.cluster;
 
-import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-import org.neo4j.driver.AccessMode;
 import org.neo4j.driver.Logger;
 import org.neo4j.driver.internal.BoltServerAddress;
 import org.neo4j.driver.internal.RoutingErrorHandler;
+import org.neo4j.driver.internal.async.ConnectionContext;
 import org.neo4j.driver.internal.spi.ConnectionPool;
 import org.neo4j.driver.internal.util.Futures;
 
@@ -41,12 +40,10 @@ public class RoutingTableHandler implements RoutingErrorHandler
     private final ConnectionPool connectionPool;
     private final Rediscovery rediscovery;
     private final Logger log;
+    private final long routingTablePurgeDelayMs;
 
-    // This defines how long we shall wait before trimming a routing table from routing tables after it is stale.
-    // TODO make this a configuration option
-    public static final Duration STALE_ROUTING_TABLE_PURGE_TIMEOUT = Duration.ofSeconds( 30 );
-
-    public RoutingTableHandler( RoutingTable routingTable, Rediscovery rediscovery, ConnectionPool connectionPool, RoutingTableRegistry routingTableRegistry, Logger log )
+    public RoutingTableHandler( RoutingTable routingTable, Rediscovery rediscovery, ConnectionPool connectionPool, RoutingTableRegistry routingTableRegistry,
+            Logger log, long routingTablePurgeDelayMs )
     {
         this.routingTable = routingTable;
         this.databaseName = routingTable.database();
@@ -54,6 +51,7 @@ public class RoutingTableHandler implements RoutingErrorHandler
         this.connectionPool = connectionPool;
         this.routingTableRegistry = routingTableRegistry;
         this.log = log;
+        this.routingTablePurgeDelayMs = routingTablePurgeDelayMs;
     }
 
     @Override
@@ -69,14 +67,14 @@ public class RoutingTableHandler implements RoutingErrorHandler
         routingTable.forgetWriter( address );
     }
 
-    synchronized CompletionStage<RoutingTable> refreshRoutingTable( AccessMode mode )
+    synchronized CompletionStage<RoutingTable> refreshRoutingTable( ConnectionContext context )
     {
         if ( refreshRoutingTableFuture != null )
         {
             // refresh is already happening concurrently, just use it's result
             return refreshRoutingTableFuture;
         }
-        else if ( routingTable.isStaleFor( mode ) )
+        else if ( routingTable.isStaleFor( context.mode() ) )
         {
             // existing routing table is not fresh and should be updated
             log.info( "Routing table for database '%s' is stale. %s", databaseName, routingTable );
@@ -84,7 +82,7 @@ public class RoutingTableHandler implements RoutingErrorHandler
             CompletableFuture<RoutingTable> resultFuture = new CompletableFuture<>();
             refreshRoutingTableFuture = resultFuture;
 
-            rediscovery.lookupClusterComposition( routingTable, connectionPool )
+            rediscovery.lookupClusterComposition( routingTable, connectionPool, context.rediscoveryBookmark() )
                     .whenComplete( ( composition, completionError ) ->
                     {
                         Throwable error = Futures.completionExceptionCause( completionError );
@@ -145,7 +143,7 @@ public class RoutingTableHandler implements RoutingErrorHandler
     // This method cannot be synchronized as it will be visited by all routing table handler's threads concurrently
     public boolean isRoutingTableAged()
     {
-        return refreshRoutingTableFuture == null && routingTable.hasBeenStaleFor( STALE_ROUTING_TABLE_PURGE_TIMEOUT.toMillis() );
+        return refreshRoutingTableFuture == null && routingTable.hasBeenStaleFor( routingTablePurgeDelayMs );
     }
 
     // for testing only

@@ -23,7 +23,6 @@ import org.junit.jupiter.api.Test;
 import java.io.File;
 import java.util.concurrent.TimeUnit;
 
-import org.neo4j.driver.Config;
 import org.neo4j.driver.net.ServerAddressResolver;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -45,23 +44,7 @@ class ConfigTest
         Config.TrustStrategy authConfig = config.trustStrategy();
 
         // Then
-        assertEquals( authConfig.strategy(), Config.TrustStrategy.Strategy.TRUST_ALL_CERTIFICATES );
-    }
-
-    @SuppressWarnings( "deprecation" )
-    @Test
-    void shouldChangeToNewKnownCerts()
-    {
-        // Given
-        File knownCerts = new File( "new_known_hosts" );
-        Config config = Config.builder().withTrustStrategy( Config.TrustStrategy.trustOnFirstUse( knownCerts ) ).build();
-
-        // When
-        Config.TrustStrategy authConfig = config.trustStrategy();
-
-        // Then
-        assertEquals( authConfig.strategy(), Config.TrustStrategy.Strategy.TRUST_ON_FIRST_USE );
-        assertEquals( knownCerts.getAbsolutePath(), authConfig.certFile().getAbsolutePath() );
+        assertEquals( authConfig.strategy(), Config.TrustStrategy.Strategy.TRUST_SYSTEM_CA_SIGNED_CERTIFICATES );
     }
 
     @Test
@@ -266,8 +249,8 @@ class ConfigTest
     @Test
     void shouldEnableAndDisableHostnameVerificationOnTrustStrategy()
     {
-        Config.TrustStrategy trustStrategy = Config.TrustStrategy.trustAllCertificates();
-        assertFalse( trustStrategy.isHostnameVerificationEnabled() );
+        Config.TrustStrategy trustStrategy = Config.TrustStrategy.trustSystemCertificates();
+        assertTrue( trustStrategy.isHostnameVerificationEnabled() );
 
         assertSame( trustStrategy, trustStrategy.withHostnameVerification() );
         assertTrue( trustStrategy.isHostnameVerificationEnabled() );

@@ -44,7 +44,6 @@ import org.neo4j.driver.internal.cluster.RoutingSettings;
 import org.neo4j.driver.internal.cluster.loadbalancing.LeastConnectedLoadBalancingStrategy;
 import org.neo4j.driver.internal.cluster.loadbalancing.LoadBalancer;
 import org.neo4j.driver.internal.cluster.loadbalancing.LoadBalancingStrategy;
-import org.neo4j.driver.internal.cluster.loadbalancing.RoundRobinLoadBalancingStrategy;
 import org.neo4j.driver.internal.logging.NettyLogging;
 import org.neo4j.driver.internal.metrics.InternalMetricsProvider;
 import org.neo4j.driver.internal.metrics.MetricsProvider;
@@ -187,10 +186,6 @@ public class DriverFactory
     protected InternalDriver createRoutingDriver( SecurityPlan securityPlan, BoltServerAddress address, ConnectionPool connectionPool,
             EventExecutorGroup eventExecutorGroup, RoutingSettings routingSettings, RetryLogic retryLogic, MetricsProvider metricsProvider, Config config )
     {
-        if ( !securityPlan.isRoutingCompatible() )
-        {
-            throw new IllegalArgumentException( "The chosen security plan is not compatible with a routing driver" );
-        }
         ConnectionProvider connectionProvider = createLoadBalancer( address, connectionPool, eventExecutorGroup,
                 config, routingSettings );
         SessionFactory sessionFactory = createSessionFactory( connectionProvider, retryLogic, config );
@@ -218,24 +213,10 @@ public class DriverFactory
     protected LoadBalancer createLoadBalancer( BoltServerAddress address, ConnectionPool connectionPool,
             EventExecutorGroup eventExecutorGroup, Config config, RoutingSettings routingSettings )
     {
-        LoadBalancingStrategy loadBalancingStrategy = createLoadBalancingStrategy( config, connectionPool );
+        LoadBalancingStrategy loadBalancingStrategy = new LeastConnectedLoadBalancingStrategy( connectionPool, config.logging() );
         ServerAddressResolver resolver = createResolver( config );
         return new LoadBalancer( address, routingSettings, connectionPool, eventExecutorGroup, createClock(),
                 config.logging(), loadBalancingStrategy, resolver );
-    }
-
-    private static LoadBalancingStrategy createLoadBalancingStrategy( Config config,
-            ConnectionPool connectionPool )
-    {
-        switch ( config.loadBalancingStrategy() )
-        {
-        case ROUND_ROBIN:
-            return new RoundRobinLoadBalancingStrategy( config.logging() );
-        case LEAST_CONNECTED:
-            return new LeastConnectedLoadBalancingStrategy( connectionPool, config.logging() );
-        default:
-            throw new IllegalArgumentException( "Unknown load balancing strategy: " + config.loadBalancingStrategy() );
-        }
     }
 
     private static ServerAddressResolver createResolver( Config config )
@@ -300,7 +281,7 @@ public class DriverFactory
     {
         try
         {
-            return createSecurityPlanImpl( address, config );
+            return createSecurityPlanImpl( config );
         }
         catch ( GeneralSecurityException | IOException ex )
         {
@@ -312,28 +293,15 @@ public class DriverFactory
      * Establish a complete SecurityPlan based on the details provided for
      * driver construction.
      */
-    @SuppressWarnings( "deprecation" )
-    private static SecurityPlan createSecurityPlanImpl( BoltServerAddress address, Config config )
+    private static SecurityPlan createSecurityPlanImpl( Config config )
             throws GeneralSecurityException, IOException
     {
         if ( config.encrypted() )
         {
-            Logger logger = config.logging().getLog( "SecurityPlan" );
             Config.TrustStrategy trustStrategy = config.trustStrategy();
             boolean hostnameVerificationEnabled = trustStrategy.isHostnameVerificationEnabled();
             switch ( trustStrategy.strategy() )
             {
-            case TRUST_ON_FIRST_USE:
-                logger.warn(
-                        "Option `TRUST_ON_FIRST_USE` has been deprecated and will be removed in a future " +
-                                "version of the driver. Please switch to use `TRUST_ALL_CERTIFICATES` instead." );
-                return SecurityPlan.forTrustOnFirstUse( trustStrategy.certFile(), hostnameVerificationEnabled, address, logger );
-            case TRUST_SIGNED_CERTIFICATES:
-                logger.warn(
-                        "Option `TRUST_SIGNED_CERTIFICATE` has been deprecated and will be removed in a future " +
-                                "version of the driver. Please switch to use `TRUST_CUSTOM_CA_SIGNED_CERTIFICATES` instead." );
-                // intentional fallthrough
-
             case TRUST_CUSTOM_CA_SIGNED_CERTIFICATES:
                 return SecurityPlan.forCustomCASignedCertificates( trustStrategy.certFile(), hostnameVerificationEnabled );
             case TRUST_SYSTEM_CA_SIGNED_CERTIFICATES:

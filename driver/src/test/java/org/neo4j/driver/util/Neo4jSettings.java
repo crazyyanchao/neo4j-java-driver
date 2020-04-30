@@ -28,13 +28,10 @@ import static org.neo4j.driver.internal.util.Iterables.map;
 
 public class Neo4jSettings
 {
-    public static final String AUTH_ENABLED = "dbms.security.auth_enabled";
     public static final String DATA_DIR = "dbms.directories.data";
-    public static final String CERT_DIR = "dbms.directories.certificates";
     public static final String IMPORT_DIR = "dbms.directories.import";
-    public static final String LISTEN_ADDR = "dbms.connectors.default_listen_address"; // only valid for 3.1+
+    public static final String LISTEN_ADDR = "dbms.connectors.default_listen_address";
     public static final String IPV6_ENABLED_ADDR = "::";
-    public static final String PAGE_CACHE_SIZE = "dbms.memory.pagecache.size";
     public static final String BOLT_TLS_LEVEL = "dbms.connector.bolt.tls_level";
 
     private static final String DEFAULT_IMPORT_DIR = "import";
@@ -53,7 +50,7 @@ public class Neo4jSettings
     private static final int DEFAULT_BOLT_PORT = 9000;
 
     static final int CURRENT_HTTP_PORT = DEFAULT_HTTP_PORT + TEST_JVM_ID;
-    static final int CURRENT_HTTPS_PORT = DEFAULT_HTTPS_PORT + TEST_JVM_ID;
+    private static final int CURRENT_HTTPS_PORT = DEFAULT_HTTPS_PORT + TEST_JVM_ID;
     static final int CURRENT_BOLT_PORT = DEFAULT_BOLT_PORT + TEST_JVM_ID;
 
     private static final String WINDOWS_SERVICE_NAME = "neo4j-" + TEST_JVM_ID;
@@ -63,17 +60,13 @@ public class Neo4jSettings
 
     public static final Neo4jSettings TEST_SETTINGS = new Neo4jSettings( map(
             "dbms.backup.enabled", "false",
-            "dbms.memory.pagecache.size", "100m",
             "dbms.connector.http.listen_address", ":" + CURRENT_HTTP_PORT,
             "dbms.connector.https.listen_address", ":" + CURRENT_HTTPS_PORT,
             "dbms.connector.bolt.listen_address", ":" + CURRENT_BOLT_PORT,
             "dbms.windows_service_name", WINDOWS_SERVICE_NAME,
 
-            CERT_DIR, DEFAULT_CERT_DIR,
             DATA_DIR, DEFAULT_DATA_DIR,
             IMPORT_DIR, DEFAULT_IMPORT_DIR,
-            AUTH_ENABLED, "true",
-            PAGE_CACHE_SIZE, DEFAULT_PAGE_CACHE_SIZE,
             BOLT_TLS_LEVEL, DEFAULT_BOLT_TLS_LEVEL,
             LISTEN_ADDR, IPV6_ENABLED_ADDR ), Collections.<String>emptySet() );
 

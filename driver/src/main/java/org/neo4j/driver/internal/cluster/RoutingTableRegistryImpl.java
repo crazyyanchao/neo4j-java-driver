@@ -24,9 +24,9 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import org.neo4j.driver.AccessMode;
 import org.neo4j.driver.Logger;
 import org.neo4j.driver.internal.BoltServerAddress;
+import org.neo4j.driver.internal.async.ConnectionContext;
 import org.neo4j.driver.internal.spi.ConnectionPool;
 import org.neo4j.driver.internal.util.Clock;
 
@@ -36,9 +36,9 @@ public class RoutingTableRegistryImpl implements RoutingTableRegistry
     private final RoutingTableHandlerFactory factory;
     private final Logger logger;
 
-    public RoutingTableRegistryImpl( ConnectionPool connectionPool, Rediscovery rediscovery, Clock clock, Logger logger )
+    public RoutingTableRegistryImpl( ConnectionPool connectionPool, Rediscovery rediscovery, Clock clock, Logger logger, long routingTablePurgeDelayMs )
     {
-        this( new ConcurrentHashMap<>(), new RoutingTableHandlerFactory( connectionPool, rediscovery, clock, logger ), logger );
+        this( new ConcurrentHashMap<>(), new RoutingTableHandlerFactory( connectionPool, rediscovery, clock, logger, routingTablePurgeDelayMs ), logger );
     }
 
     RoutingTableRegistryImpl( ConcurrentMap<String,RoutingTableHandler> routingTableHandlers, RoutingTableHandlerFactory factory, Logger logger )
@@ -49,10 +49,10 @@ public class RoutingTableRegistryImpl implements RoutingTableRegistry
     }
 
     @Override
-    public CompletionStage<RoutingTableHandler> refreshRoutingTable( String databaseName, AccessMode mode )
+    public CompletionStage<RoutingTableHandler> refreshRoutingTable( ConnectionContext context )
     {
-        RoutingTableHandler handler = getOrCreate( databaseName );
-        return handler.refreshRoutingTable( mode ).thenApply( ignored -> handler );
+        RoutingTableHandler handler = getOrCreate( context.databaseName() );
+        return handler.refreshRoutingTable( context ).thenApply( ignored -> handler );
     }
 
     @Override
@@ -109,19 +109,21 @@ public class RoutingTableRegistryImpl implements RoutingTableRegistry
         private final Rediscovery rediscovery;
         private final Logger log;
         private final Clock clock;
+        private final long routingTablePurgeDelayMs;
 
-        RoutingTableHandlerFactory( ConnectionPool connectionPool, Rediscovery rediscovery, Clock clock, Logger log )
+        RoutingTableHandlerFactory( ConnectionPool connectionPool, Rediscovery rediscovery, Clock clock, Logger log, long routingTablePurgeDelayMs )
         {
             this.connectionPool = connectionPool;
             this.rediscovery = rediscovery;
             this.clock = clock;
             this.log = log;
+            this.routingTablePurgeDelayMs = routingTablePurgeDelayMs;
         }
 
         RoutingTableHandler newInstance( String databaseName, RoutingTableRegistry allTables )
         {
             ClusterRoutingTable routingTable = new ClusterRoutingTable( databaseName, clock );
-            return new RoutingTableHandler( routingTable, rediscovery, connectionPool, allTables, log );
+            return new RoutingTableHandler( routingTable, rediscovery, connectionPool, allTables, log, routingTablePurgeDelayMs );
         }
     }
 }

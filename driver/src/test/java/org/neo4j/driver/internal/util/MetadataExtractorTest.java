@@ -30,7 +30,8 @@ import org.neo4j.driver.Values;
 import org.neo4j.driver.exceptions.UntrustedServerException;
 import org.neo4j.driver.exceptions.value.Uncoercible;
 import org.neo4j.driver.internal.BoltServerAddress;
-import org.neo4j.driver.internal.Bookmarks;
+import org.neo4j.driver.internal.Bookmark;
+import org.neo4j.driver.internal.InternalBookmark;
 import org.neo4j.driver.internal.spi.Connection;
 import org.neo4j.driver.internal.summary.InternalInputPosition;
 import org.neo4j.driver.summary.DatabaseInfo;
@@ -58,10 +59,12 @@ import static org.neo4j.driver.Values.values;
 import static org.neo4j.driver.internal.summary.InternalSummaryCounters.EMPTY_STATS;
 import static org.neo4j.driver.internal.util.MetadataExtractor.extractDatabaseInfo;
 import static org.neo4j.driver.internal.util.MetadataExtractor.extractNeo4jServerVersion;
+import static org.neo4j.driver.internal.util.ServerVersion.v4_0_0;
 import static org.neo4j.driver.summary.StatementType.READ_ONLY;
 import static org.neo4j.driver.summary.StatementType.READ_WRITE;
 import static org.neo4j.driver.summary.StatementType.SCHEMA_WRITE;
 import static org.neo4j.driver.summary.StatementType.WRITE_ONLY;
+import static org.neo4j.driver.util.TestUtil.anyServerVersion;
 
 class MetadataExtractorTest
 {
@@ -114,12 +117,12 @@ class MetadataExtractorTest
     @Test
     void shouldBuildResultSummaryWithServerInfo()
     {
-        Connection connection = connectionMock( new BoltServerAddress( "server:42" ), ServerVersion.v3_2_0 );
+        Connection connection = connectionMock( new BoltServerAddress( "server:42" ), v4_0_0 );
 
         ResultSummary summary = extractor.extractSummary( statement(), connection, 42, emptyMap() );
 
         assertEquals( "server:42", summary.server().address() );
-        assertEquals( "Neo4j/3.2.0", summary.server().version() );
+        assertEquals( "Neo4j/4.0.0", summary.server().version() );
     }
 
     @Test
@@ -356,33 +359,33 @@ class MetadataExtractorTest
     {
         String bookmarkValue = "neo4j:bookmark:v1:tx123456";
 
-        Bookmarks bookmarks = extractor.extractBookmarks( singletonMap( "bookmark", value( bookmarkValue ) ) );
+        Bookmark bookmark = extractor.extractBookmarks( singletonMap( "bookmark", value( bookmarkValue ) ) );
 
-        assertEquals( Bookmarks.from( bookmarkValue ), bookmarks );
+        assertEquals( InternalBookmark.parse( bookmarkValue ), bookmark );
     }
 
     @Test
     void shouldExtractNoBookmarkWhenMetadataContainsNull()
     {
-        Bookmarks bookmarks = extractor.extractBookmarks( singletonMap( "bookmark", null ) );
+        Bookmark bookmark = extractor.extractBookmarks( singletonMap( "bookmark", null ) );
 
-        assertEquals( Bookmarks.empty(), bookmarks );
+        assertEquals( InternalBookmark.empty(), bookmark );
     }
 
     @Test
     void shouldExtractNoBookmarkWhenMetadataContainsNullValue()
     {
-        Bookmarks bookmarks = extractor.extractBookmarks( singletonMap( "bookmark", Values.NULL ) );
+        Bookmark bookmark = extractor.extractBookmarks( singletonMap( "bookmark", Values.NULL ) );
 
-        assertEquals( Bookmarks.empty(), bookmarks );
+        assertEquals( InternalBookmark.empty(), bookmark );
     }
 
     @Test
     void shouldExtractNoBookmarkWhenMetadataContainsValueOfIncorrectType()
     {
-        Bookmarks bookmarks = extractor.extractBookmarks( singletonMap( "bookmark", value( 42 ) ) );
+        Bookmark bookmark = extractor.extractBookmarks( singletonMap( "bookmark", value( 42 ) ) );
 
-        assertEquals( Bookmarks.empty(), bookmarks );
+        assertEquals( InternalBookmark.empty(), bookmark );
     }
 
     @Test
@@ -461,7 +464,7 @@ class MetadataExtractorTest
 
     private static Connection connectionMock()
     {
-        return connectionMock( BoltServerAddress.LOCAL_DEFAULT, ServerVersion.v3_1_0 );
+        return connectionMock( BoltServerAddress.LOCAL_DEFAULT, anyServerVersion() );
     }
 
     private static Connection connectionMock( BoltServerAddress address, ServerVersion version )

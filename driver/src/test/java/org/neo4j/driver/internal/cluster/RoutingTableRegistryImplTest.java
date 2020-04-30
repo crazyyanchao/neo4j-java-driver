@@ -31,6 +31,8 @@ import java.util.concurrent.ConcurrentMap;
 
 import org.neo4j.driver.AccessMode;
 import org.neo4j.driver.internal.BoltServerAddress;
+import org.neo4j.driver.internal.InternalBookmark;
+import org.neo4j.driver.internal.async.ImmutableConnectionContext;
 import org.neo4j.driver.internal.cluster.RoutingTableRegistryImpl.RoutingTableHandlerFactory;
 import org.neo4j.driver.internal.spi.ConnectionPool;
 import org.neo4j.driver.internal.util.Clock;
@@ -48,6 +50,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.neo4j.driver.internal.cluster.RoutingSettings.STALE_ROUTING_TABLE_PURGE_DELAY_MS;
 import static org.neo4j.driver.internal.logging.DevNullLogger.DEV_NULL_LOGGER;
 import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.ABSENT_DB_NAME;
 import static org.neo4j.driver.internal.messaging.request.MultiDatabaseUtil.SYSTEM_DB_NAME;
@@ -66,7 +69,8 @@ class RoutingTableRegistryImplTest
     {
         Clock clock = Clock.SYSTEM;
         RoutingTableHandlerFactory factory =
-                new RoutingTableHandlerFactory( mock( ConnectionPool.class ), mock( RediscoveryImpl.class ), clock, DEV_NULL_LOGGER );
+                new RoutingTableHandlerFactory( mock( ConnectionPool.class ), mock( RediscoveryImpl.class ), clock, DEV_NULL_LOGGER,
+                        STALE_ROUTING_TABLE_PURGE_DELAY_MS );
 
         RoutingTableHandler handler = factory.newInstance( "Molly", null );
         RoutingTable table = handler.routingTable();
@@ -91,7 +95,7 @@ class RoutingTableRegistryImplTest
         RoutingTableRegistryImpl routingTables = newRoutingTables( map, factory );
 
         // When
-        routingTables.refreshRoutingTable( databaseName, AccessMode.READ );
+        routingTables.refreshRoutingTable( new ImmutableConnectionContext( databaseName, InternalBookmark.empty(), AccessMode.READ ) );
 
         // Then
         assertTrue( map.containsKey( databaseName ) );
@@ -109,12 +113,13 @@ class RoutingTableRegistryImplTest
 
         RoutingTableHandlerFactory factory = mockedHandlerFactory();
         RoutingTableRegistryImpl routingTables = newRoutingTables( map, factory );
+        ImmutableConnectionContext context = new ImmutableConnectionContext( databaseName, InternalBookmark.empty(), AccessMode.READ );
 
         // When
-        RoutingTableHandler actual = await( routingTables.refreshRoutingTable( databaseName, AccessMode.READ ) );
+        RoutingTableHandler actual = await( routingTables.refreshRoutingTable( context ) );
 
         // Then it is the one we put in map that is picked up.
-        verify( handler ).refreshRoutingTable( AccessMode.READ );
+        verify( handler ).refreshRoutingTable( context );
         // Then it is the one we put in map that is picked up.
         assertEquals( handler, actual );
     }
@@ -129,11 +134,12 @@ class RoutingTableRegistryImplTest
         RoutingTableHandlerFactory factory = mockedHandlerFactory( handler );
         RoutingTableRegistryImpl routingTables = new RoutingTableRegistryImpl( map, factory, DEV_NULL_LOGGER );
 
+        ImmutableConnectionContext context = new ImmutableConnectionContext( ABSENT_DB_NAME, InternalBookmark.empty(), mode );
         // When
-        routingTables.refreshRoutingTable( ABSENT_DB_NAME, mode );
+        routingTables.refreshRoutingTable( context );
 
         // Then
-        verify( handler ).refreshRoutingTable( mode );
+        verify( handler ).refreshRoutingTable( context );
     }
 
     @Test
